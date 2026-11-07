@@ -1,82 +1,96 @@
 # metroweb
 
-Cliente web de YouTube Music, no estilo do Metrolist, feito pra celular e PC. Você busca, ouve, favorita (♥) e **baixa pra uma pasta que o Jellyfin monitora**. Backend em Go (só stdlib) com o HTML embutido no binário; login próprio, pra você hospedar em casa ou num servidor e acessar de qualquer lugar.
+A self-hosted YouTube Music web client, modelled on [Metrolist](https://github.com/MetrolistGroup/Metrolist) and built for phones and desktops. Search, listen, like songs, build playlists, and **download music into a folder Jellyfin watches**. Go backend (stdlib only) with the frontend embedded in the binary, and its own login so you can host it at home or on a server and reach it from anywhere.
 
-- Interface mobile-first (barra de navegação, mini player, player em tela cheia com cor da capa) e layout de desktop com barra lateral e player fixo
-- Instalável como PWA no celular
-- ♥ favorita **e** baixa a música; ⋮ abre o menu (rádio, tocar a seguir, fila, baixar)
-- Download em `Artista/Álbum/Título.m4a`, com tags e capa quadrada; não baixa a mesma música duas vezes; pede rescan ao Jellyfin se você configurar
+**Features**
 
-## Rodar com Docker (recomendado)
+- Mobile-first Material 3 UI (bottom navigation, mini player, full-screen player with colors taken from the cover art) and a desktop layout with a sidebar and a persistent player bar
+- Search for songs, **artists** and albums; artist pages with top songs, all songs, albums, singles, videos, similar artists, **artist radio**
+- Home with quick picks based on what you played, recently played and YouTube Music suggestions
+- **Playlists** and **Liked songs**, stored on the server so they follow you across devices
+- ♥ likes a song **and** downloads it to your library; the ⋮ menu has radio, play next, queue, add to playlist, download, go to artist/album and **share link**
+- Paste a YouTube / YouTube Music link into the search box to open that song, artist, album or playlist
+- Downloads land in `Artist/Album/Title.m4a` with tags and a square cover, are never duplicated, and trigger a Jellyfin library rescan if you configure it
+- Installable as a PWA
+
+## Run with Docker (recommended)
 
 ```sh
 git clone https://github.com/julimonteiro/metroweb && cd metroweb
-# edite docker-compose.yml: ./music -> a pasta que o Jellyfin monitora
+# edit docker-compose.yml: point ./music at the folder Jellyfin watches
 docker compose up -d --build
 ```
 
-Abra `http://localhost:8080`. O login inicial é **`admin` / `admin`**: troque pela própria interface (ícone da conta, canto superior direito no celular, "admin" no menu lateral no PC). Enquanto a senha padrão estiver em uso, o app mostra um aviso.
+On Linux, make sure the music folder is writable by UID 1000 (`sudo chown 1000:1000 music`).
 
-A imagem já traz `yt-dlp`, `ffmpeg` e Node.
+Open `http://localhost:8080`. The initial login is **`admin` / `admin`**: change it from the account menu (avatar on phones, "admin" in the sidebar on desktop). A banner reminds you until you do.
 
-## Rodar sem Docker
+The image bundles `yt-dlp`, `ffmpeg` and Deno. Rebuild it now and then (`docker compose build --no-cache`) to pick up a fresh `yt-dlp`.
 
-Precisa de Go 1.24+, `yt-dlp` e `ffmpeg` no PATH.
+## Run without Docker
+
+You need Go 1.24+, `yt-dlp` and `ffmpeg` on your PATH (plus Deno or Node for yt-dlp's JavaScript challenges).
 
 ```sh
 go run . -library ~/Music/metroweb -addr 0.0.0.0:8080
 ```
 
-| Flag | Env | O que faz |
+| Flag | Env | What it does |
 |---|---|---|
-| `-addr` | | Endereço de escuta (padrão `:8080`) |
-| `-library` | `METROWEB_LIBRARY` | Pasta onde as músicas são salvas (a do Jellyfin) |
-| `-jellyfin-url` | `JELLYFIN_URL` | Ex.: `http://jellyfin:8096`; ativa o rescan automático |
-| `-jellyfin-key` | `JELLYFIN_API_KEY` | Chave de API (Painel > Chaves de API) |
-| `-user` / `-password` | `METROWEB_USER` / `METROWEB_PASSWORD` | Credenciais **iniciais** (só valem na primeira execução; padrão `admin`/`admin`) |
-| `-data` | `METROWEB_DATA` | Pasta de dados: credenciais (com hash) e segredo da sessão |
-| `-trust-proxy` | `METROWEB_TRUST_PROXY=1` | Usa `X-Forwarded-For` (atrás de proxy/túnel) pro limite de tentativas |
+| `-addr` | | Listen address (default `:8080`) |
+| `-library` | `METROWEB_LIBRARY` | Folder where songs are saved (the one Jellyfin watches) |
+| `-jellyfin-url` | `JELLYFIN_URL` | e.g. `http://jellyfin:8096`; enables the automatic rescan |
+| `-jellyfin-key` | `JELLYFIN_API_KEY` | API key (Dashboard > API Keys) |
+| `-user` / `-password` | `METROWEB_USER` / `METROWEB_PASSWORD` | **Initial** credentials, used on first run only (default `admin`/`admin`) |
+| `-data` | `METROWEB_DATA` | Data folder: credentials (hashed), playlists, session secret, stream cache |
+| `-trust-proxy` | `METROWEB_TRUST_PROXY=1` | Trust `X-Forwarded-For` (behind a reverse proxy or tunnel) for login rate limiting |
 
-## Acessar de fora de casa
+## Reaching it from outside your home
 
-O servidor tem login (senha com PBKDF2, cookie de sessão assinado e `HttpOnly`, bloqueio de 5 minutos após 5 tentativas erradas por IP), mas **fale com ele sempre por HTTPS** quando for pela internet, senão a senha trafega em texto puro. Três jeitos:
+The server has a login (PBKDF2-hashed password, signed `HttpOnly` session cookie, 5-minute lockout after 5 failed attempts per IP), but **always use HTTPS** when going over the internet, otherwise your password travels in clear text. Options:
 
-1. **Tailscale** (mais simples e mais seguro): instale no servidor e no celular; acesse por `http://nome-do-servidor:8080` sem expor nada na internet. `tailscale serve` dá HTTPS de graça.
-2. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8080` (ou um túnel nomeado com seu domínio). Já vem com HTTPS.
-3. **Proxy reverso próprio** (Caddy, nginx, Traefik) com certificado Let's Encrypt, apontando pra porta 8080. Exemplo com Caddy:
+1. **Tailscale** (simplest and safest): install it on the server and your phone and browse to `http://your-server:8080`; nothing is exposed to the internet. `tailscale serve` gives you HTTPS for free.
+2. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8080` (or a named tunnel on your domain). HTTPS included.
+3. **A reverse proxy** (Caddy, nginx, Traefik) with a Let's Encrypt certificate. With Caddy:
 
    ```
-   musica.seudominio.com {
+   music.example.com {
        reverse_proxy localhost:8080
    }
    ```
 
-**Troque a senha `admin` antes de expor na internet.** Qualquer pessoa logada pode enfileirar downloads no seu disco.
+**Change the `admin` password before exposing the server.** Anyone who is signed in can queue downloads onto your disk.
 
-## Quando o YouTube der 403 / só aparecer o formato 18
+## When YouTube answers 403
 
-Quase sempre é o `yt-dlp` desatualizado: versões com mais de ~90 dias param de funcionar. Atualize (`pip install -U "yt-dlp[default]"`; no Docker, `docker compose build --no-cache`) e tenha um runtime JS (Deno ou Node) no PATH. Se ainda falhar, o plugin [bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) gera o PO token que o YouTube às vezes exige.
+Almost always an outdated `yt-dlp`: versions older than ~90 days stop working. Update it (`pip install -U "yt-dlp[default]"`, or rebuild the Docker image) and make sure a JavaScript runtime (Deno or Node) is available. If it still fails, the [bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) plugin supplies the PO token YouTube sometimes demands.
 
-O `yt-dlp` é o primeiro resolvedor de stream e quem faz os downloads; os clientes innertube em `yt.go` ficam de reserva.
+Streaming tries the googlevideo URL directly first; if YouTube rejects it (some clients only work with yt-dlp's own downloader) the server lets `yt-dlp` fetch the file into `<data>/cache` and serves that with full seek support.
 
-## Como funciona
+## API
 
-| Rota | O que faz |
+All routes except `/login` and the PWA files require a session.
+
+| Route | What it does |
 |---|---|
-| `GET /api/search?q=` | innertube `search` (cliente WEB_REMIX, filtro "Músicas") |
-| `GET /api/radio/{id}` | innertube `next` com playlist `RDAMVM{id}`, o rádio do YTM |
-| `GET /api/stream/{id}?fmt=opus\|aac` | resolve o áudio e faz proxy com suporte a Range (seek) |
-| `POST /api/download/{id}` | enfileira o download pra biblioteca |
-| `GET /api/downloads` | estado de cada download: `queued`, `running`, `done`, `error: …` |
-| `GET /api/img?u=` | proxy das capas (só hosts do Google/YouTube) |
-| `GET/POST /api/account` | usuário atual / troca de usuário e senha |
+| `GET /api/search?q=&type=all\|songs\|artists\|albums` | Typed search |
+| `GET /api/home` | YouTube Music home sections |
+| `GET /api/artist/{id}` | Artist page (top songs, sections, radio ids) |
+| `GET /api/songs?b=&p=` | Every song of an artist / playlist browse id |
+| `GET /api/album/{id}` | Album with tracks |
+| `GET /api/radio/{videoId}` · `GET /api/mix?id=&p=&v=` | Song radio / artist or playlist mix |
+| `GET /api/track/{videoId}` | Resolve one song (used for pasted links) |
+| `GET /api/stream/{id}?fmt=opus\|aac` | Audio proxy with Range support |
+| `POST /api/download/{id}` · `GET /api/downloads` | Queue a download / download states |
+| `GET/POST /api/playlists` · `GET/PATCH/DELETE /api/playlists/{id}` | Playlists (`liked` is the built-in Liked songs) |
+| `POST /api/playlists/{id}/tracks` · `DELETE /api/playlists/{id}/tracks/{trackId}` | Edit a playlist |
+| `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
+| `GET/POST /api/account` | Current user / change username and password |
 
-Todas, menos `/login` e os arquivos do PWA, exigem sessão.
+## Shortcuts (desktop)
 
-## Atalhos (PC)
+Space play/pause · Shift+←/→ previous/next · `/` search · Esc closes the player and menus.
 
-Espaço play/pause · Shift+←/→ anterior/próxima · `/` busca · Esc fecha player/menus.
+## Disclaimer
 
-## Licença e avisos
-
-Projeto pessoal, sem afiliação com YouTube, Google ou Jellyfin. Baixar conteúdo do YouTube pode violar os termos do serviço e a lei de direitos autorais do seu país: use só com o que você tem direito de baixar.
+A personal project, not affiliated with YouTube, Google, Metrolist or Jellyfin. Downloading content from YouTube may violate its terms of service and copyright law where you live: only download what you have the right to.

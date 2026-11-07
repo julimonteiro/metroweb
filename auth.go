@@ -220,17 +220,17 @@ func (a *Auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		ip := a.clientIP(r)
 		if a.locked(ip) {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Muitas tentativas. Tente de novo em alguns minutos."})
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many attempts. Try again in a few minutes."})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		if err := r.ParseForm(); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Requisição inválida."})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request."})
 			return
 		}
 		if !a.check(r.PostForm.Get("user"), r.PostForm.Get("password")) {
 			a.fail(ip)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Usuário ou senha incorretos."})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Incorrect username or password."})
 			return
 		}
 		a.issue(w, r)
@@ -260,18 +260,18 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		ip := a.clientIP(r)
 		if a.locked(ip) {
-			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Muitas tentativas. Tente de novo em alguns minutos."})
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many attempts. Try again in a few minutes."})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		var in struct{ Current, User, Password string }
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			writeJSON(w, 400, map[string]string{"error": "Requisição inválida."})
+			writeJSON(w, 400, map[string]string{"error": "Invalid request."})
 			return
 		}
 		if !a.check(a.snapshot().User, in.Current) {
 			a.fail(ip)
-			writeJSON(w, 401, map[string]string{"error": "Senha atual incorreta."})
+			writeJSON(w, 401, map[string]string{"error": "Current password is incorrect."})
 			return
 		}
 		user := strings.TrimSpace(in.User)
@@ -279,7 +279,7 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 			user = a.snapshot().User
 		}
 		if len(in.Password) < 8 {
-			writeJSON(w, 400, map[string]string{"error": "A nova senha precisa ter pelo menos 8 caracteres."})
+			writeJSON(w, 400, map[string]string{"error": "The new password must be at least 8 characters."})
 			return
 		}
 		if err := a.setCreds(user, in.Password); err != nil {
@@ -313,13 +313,16 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		case !a.valid(r):
 			if strings.HasPrefix(r.URL.Path, "/api/") {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "login necessário"})
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "login required"})
 			} else {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 			}
 		case r.URL.Path == "/api/account":
 			a.handleAccount(w, r)
 		default:
+			if !strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Cache-Control", "no-cache") // always revalidate the app files
+			}
 			next.ServeHTTP(w, r)
 		}
 	})

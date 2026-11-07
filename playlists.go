@@ -1,0 +1,197 @@
+package main
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+const likedID = "liked"
+
+type Playlist struct {
+	ID      string    `json:"id"`
+	Name    string    `json:"name"`
+	Tracks  []Track   `json:"tracks"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+}
+
+// PlaylistSummary is the light version used in lists.
+type PlaylistSummary struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+	Thumb string `json:"thumb,omitempty"`
+}
+
+// PlaylistStore keeps playlists (and the special "Liked songs" one) in a JSON
+// file inside the data directory so they follow you across devices.
+type PlaylistStore struct {
+	mu    sync.Mutex
+	path  string
+	lists []*Playlist
+}
+
+func NewPlaylistStore(dir string) (*PlaylistStore, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	s := &PlaylistStore{path: filepath.Join(dir, "playlists.json")}
+	if b, err := os.ReadFile(s.path); err == nil {
+		if err := json.Unmarshal(b, &s.lists); err != nil {
+			return nil, err
+		}
+	}
+	if s.find(likedID) == nil {
+		now := time.Now()
+		s.lists = append([]*Playlist{{ID: likedID, Name: "Liked songs", Tracks: []Track{}, Created: now, Updated: now}}, s.lists...)
+	}
+	return s, nil
+}
+
+func (s *PlaylistStore) find(id string) *Playlist {
+	for _, p := range s.lists {
+		if p.ID == id {
+			return p
+		}
+	}
+	return nil
+}
+
+func (s *PlaylistStore) save() error {
+	b, err := json.MarshalIndent(s.lists, "", " ")
+	if err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
+}
+
+func (s *PlaylistStore) List() []PlaylistSummary {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PlaylistSummary, 0, len(s.lists))
+	for _, p := range s.lists {
+		sum := PlaylistSummary{ID: p.ID, Name: p.Name, Count: len(p.Tracks)}
+		if len(p.Tracks) > 0 {
+			sum.Thumb = p.Tracks[len(p.Tracks)-1].Thumb
+		}
+		out = append(out, sum)
+	}
+	return out
+}
+
+func (s *PlaylistStore) Get(id string) (Playlist, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(id)
+	if p == nil {
+		return Playlist{}, false
+	}
+	cp := *p
+	cp.Tracks = append([]Track{}, p.Tracks...)
+	return cp, true
+}
+
+func (s *PlaylistStore) Create(name string) (PlaylistSummary, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 100 {
+		return PlaylistSummary{}, errors.New("playlist name must be 1-100 characters")
+	}
+	b := make([]byte, 6)
+	rand.Read(b)
+	now := time.Now()
+	p := &Playlist{ID: hex.EncodeToString(b), Name: name, Tracks: []Track{}, Created: now, Updated: now}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lists = append(s.lists, p)
+	return PlaylistSummary{ID: p.ID, Name: p.Name}, s.save()
+}
+
+func (s *PlaylistStore) Rename(id, name string) error {
+	name = strings.TrimSpace(name)
+	if id == likedID {
+		return errors.New("Liked songs can't be renamed")
+	}
+	if name == "" || len(name) > 100 {
+		return errors.New("playlist name must be 1-100 characters")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(id)
+	if p == nil {
+		return errors.New("playlist not found")
+	}
+	p.Name, p.Updated = name, time.Now()
+	return s.save()
+}
+
+func (s *PlaylistStore) Delete(id string) error {
+	if id == likedID {
+		return errors.New("Liked songs can't be deleted")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.lists {
+		if p.ID == id {
+			s.lists = append(s.lists[:i], s.lists[i+1:]...)
+			return s.save()
+		}
+	}
+	return errors.New("playlist not found")
+}
+
+// AddTracks appends tracks, skipping ones already present. For "Liked songs"
+// new tracks go to the end too; the UI shows the list newest-first.
+func (s *PlaylistStore) AddTracks(id string, tracks []Track) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(id)
+	if p == nil {
+		return 0, errors.New("playlist not found")
+	}
+	have := map[string]bool{}
+	for _, t := range p.Tracks {
+		have[t.ID] = true
+	}
+	added := 0
+	for _, t := range tracks {
+		if t.ID == "" || t.Title == "" || have[t.ID] || len(p.Tracks) >= 5000 {
+			continue
+		}
+		have[t.ID] = true
+		p.Tracks = append(p.Tracks, t)
+		added++
+	}
+	if added > 0 {
+		p.Updated = time.Now()
+		return added, s.save()
+	}
+	return 0, nil
+}
+
+func (s *PlaylistStore) RemoveTrack(id, trackID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(id)
+	if p == nil {
+		return errors.New("playlist not found")
+	}
+	for i, t := range p.Tracks {
+		if t.ID == trackID {
+			p.Tracks = append(p.Tracks[:i], p.Tracks[i+1:]...)
+			p.Updated = time.Now()
+			return s.save()
+		}
+	}
+	return nil
+}

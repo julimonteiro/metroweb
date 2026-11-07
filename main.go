@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,86 +25,46 @@ var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 func main() {
 	addr := flag.String("addr", ":8080", "listen address (use 0.0.0.0:8080 to reach it from your phone on the LAN)")
 	home, _ := os.UserHomeDir()
-	libDir := flag.String("library", envOr("METROWEB_LIBRARY", filepath.Join(home, "Music", "metroweb")), "pasta onde salvar as músicas (a que o Jellyfin monitora)")
-	jfURL := flag.String("jellyfin-url", os.Getenv("JELLYFIN_URL"), "ex: http://localhost:8096 (opcional, pra rescan automático)")
-	jfKey := flag.String("jellyfin-key", os.Getenv("JELLYFIN_API_KEY"), "API key do Jellyfin (Painel > Chaves de API)")
-	user := flag.String("user", envOr("METROWEB_USER", "admin"), "usuário inicial (só vale na primeira execução; depois troque pelo app)")
-	pass := flag.String("password", os.Getenv("METROWEB_PASSWORD"), "senha inicial (padrão admin; só vale na primeira execução)")
-	dataDir := flag.String("data", envOr("METROWEB_DATA", filepath.Join(userConfigDir(home), "metroweb")), "pasta de dados do servidor (segredo da sessão)")
-	trustProxy := flag.Bool("trust-proxy", os.Getenv("METROWEB_TRUST_PROXY") == "1", "confiar em X-Forwarded-For (atrás de proxy reverso/túnel)")
+	libDir := flag.String("library", envOr("METROWEB_LIBRARY", filepath.Join(home, "Music", "metroweb")), "folder where songs are saved (the one Jellyfin watches)")
+	jfURL := flag.String("jellyfin-url", os.Getenv("JELLYFIN_URL"), "e.g. http://localhost:8096 (optional, enables automatic library rescan)")
+	jfKey := flag.String("jellyfin-key", os.Getenv("JELLYFIN_API_KEY"), "Jellyfin API key (Dashboard > API Keys)")
+	user := flag.String("user", envOr("METROWEB_USER", "admin"), "initial username (first run only; change it in the app afterwards)")
+	pass := flag.String("password", os.Getenv("METROWEB_PASSWORD"), "initial password (default admin; first run only)")
+	dataDir := flag.String("data", envOr("METROWEB_DATA", filepath.Join(userConfigDir(home), "metroweb")), "server data folder (credentials, playlists, session secret)")
+	trustProxy := flag.Bool("trust-proxy", os.Getenv("METROWEB_TRUST_PROXY") == "1", "trust X-Forwarded-For (behind a reverse proxy/tunnel)")
 	flag.Parse()
 
 	lib := NewLibrary(*libDir, *jfURL, *jfKey)
 	if err := lib.Check(); err != nil {
-		log.Printf("downloads desativados até resolver: %v", err)
+		log.Printf("downloads disabled until fixed: %v", err)
 	}
-	log.Printf("biblioteca: %s", *libDir)
+	log.Printf("library: %s", *libDir)
 
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(webFS, "web")
 	loginPage, _ := fs.ReadFile(static, "login.html")
 	mux.Handle("/", http.FileServer(http.FS(static)))
 
-	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
-		q := strings.TrimSpace(r.URL.Query().Get("q"))
-		if q == "" {
-			writeJSON(w, 400, map[string]string{"error": "missing q"})
-			return
-		}
-		tracks, err := Search(r.Context(), q)
-		if err != nil {
-			log.Printf("search %q: %v", q, err)
-			writeJSON(w, 502, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, tracks)
-	})
-
-	mux.HandleFunc("/api/radio/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/radio/")
-		if !idRe.MatchString(id) {
-			writeJSON(w, 400, map[string]string{"error": "bad id"})
-			return
-		}
-		tracks, err := Radio(r.Context(), id)
-		if err != nil {
-			log.Printf("radio %s: %v", id, err)
-			writeJSON(w, 502, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, tracks)
-	})
-
 	mux.HandleFunc("/api/stream/", handleStream)
 
-	mux.HandleFunc("/api/download/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/download/")
-		if r.Method != "POST" || !idRe.MatchString(id) {
-			writeJSON(w, 400, map[string]string{"error": "POST /api/download/{id}"})
-			return
-		}
-		if err := lib.Check(); err != nil {
-			writeJSON(w, 503, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, map[string]string{"status": lib.Enqueue(id)})
-	})
-	mux.HandleFunc("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, lib.Status())
-	})
-
+	playlists, perr := NewPlaylistStore(*dataDir)
+	if perr != nil {
+		log.Fatal(perr)
+	}
+	registerAPI(mux, lib, playlists)
 	mux.HandleFunc("/api/img", handleImg)
 
+	streamCacheDir = filepath.Join(*dataDir, "cache")
 	auth, err := NewAuth(*dataDir, *user, *pass, *trustProxy, loginPage)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if c := auth.snapshot(); c.Default {
-		log.Printf("AVISO: login padrão admin/admin em uso; troque pelo menu de conta no app")
+		log.Printf("WARNING: default login admin/admin in use; change it from the account menu in the app")
 	}
 	handler := auth.Middleware(mux)
 
-	log.Printf("metroweb ouvindo em %s", *addr)
+	log.Printf("metroweb listening on %s", *addr)
 	srv := &http.Server{Addr: *addr, Handler: logReq(handler), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(srv.ListenAndServe())
 }
@@ -123,14 +84,20 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		pref = "opus"
 	}
 
+	if _, bad := directFails.Load(id + "|" + pref); bad || (streamCacheDir != "" && cachedFile(id, pref) != "") {
+		serveFromCache(w, r, id, pref)
+		return
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		s, err := ResolveStream(r.Context(), id, pref)
 		if err != nil {
 			log.Printf("resolve %s: %v", id, err)
-			http.Error(w, err.Error(), 502)
-			return
+			break
 		}
 		req, _ := http.NewRequestWithContext(r.Context(), "GET", s.URL, nil)
+		for k, v := range s.Headers {
+			req.Header.Set(k, v)
+		}
 		req.Header.Set("User-Agent", s.UserAgent)
 		rng := r.Header.Get("Range")
 		if rng == "" {
@@ -143,7 +110,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 502)
 			return
 		}
-		if resp.StatusCode == 403 && attempt == 0 {
+		if resp.StatusCode == 403 {
 			// URL expired or got rejected: drop cache and resolve again.
 			resp.Body.Close()
 			cache.mu.Lock()
@@ -163,8 +130,15 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		io.Copy(w, resp.Body)
 		return
 	}
-	http.Error(w, "upstream rejected stream", 502)
+	// Direct proxying failed (googlevideo rejects URLs it only serves to yt-dlp's
+	// own downloader, e.g. TLS-fingerprint checks). Let yt-dlp fetch the file into
+	// a local cache and serve that, with full Range support.
+	directFails.Store(id+"|"+pref, true)
+	serveFromCache(w, r, id, pref)
 }
+
+// directFails remembers tracks whose googlevideo URL can't be proxied directly.
+var directFails sync.Map
 
 // handleImg proxies album art so the UI can read pixels (dynamic theme colors)
 // without CORS issues. Only Google/YouTube image hosts are allowed.

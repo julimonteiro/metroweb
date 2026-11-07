@@ -5,9 +5,11 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Opcional: rescan automático do Jellyfin depois de cada download.
+      # Optional: ask Jellyfin to rescan after every download.
       JELLYFIN_URL: ""
       JELLYFIN_API_KEY: ""
     volumes:
-      - ./music:/music   # troque pela pasta que o Jellyfin monitora
-      - ./data:/data     # credenciais e segredo da sessão
+      - ./music:/music   # change to the folder Jellyfin watches
+      - data:/data       # credentials, playlists, session secret
+volumes:
+  data:

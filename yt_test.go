@@ -43,3 +43,32 @@ func TestParseRadio(t *testing.T) {
 		t.Fatalf("bad parse: %+v", got)
 	}
 }
+
+const itemFixture = `{"a":[
+{"musicResponsiveListItemRenderer":{"flexColumns":[
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Get Lucky","navigationEndpoint":{"watchEndpoint":{"videoId":"abcdefghijk"}}}]}}},
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Daft Punk","navigationEndpoint":{"browseEndpoint":{"browseId":"UCaaa"}}},{"text":" & "},{"text":"Pharrell","navigationEndpoint":{"browseEndpoint":{"browseId":"UCbbb"}}},{"text":" • "},{"text":"Random Access Memories","navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_x"}}},{"text":" • "},{"text":"76M plays"},{"text":"6:10"}]}}}]}},
+{"musicResponsiveListItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"UCaaa"}},"flexColumns":[
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Daft Punk"}]}}},
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Artist"},{"text":" • "},{"text":"67M monthly audience"}]}}}]}},
+{"musicResponsiveListItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_x"}},"flexColumns":[
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Random Access Memories"}]}}},
+ {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Album • Daft Punk • 2013"}]}}}]}}
+]}`
+
+func TestParseTypedItems(t *testing.T) {
+	var m map[string]any
+	json.Unmarshal([]byte(itemFixture), &m)
+	got := parseSearch(m)
+	if len(got) != 3 {
+		t.Fatalf("got %d items: %+v", len(got), got)
+	}
+	s := got[0]
+	if s.Type != "song" || s.ID != "abcdefghijk" || s.Artist != "Daft Punk, Pharrell" || s.ArtistID != "UCaaa" ||
+		s.Album != "Random Access Memories" || s.AlbumID != "MPREb_x" || s.Duration != "6:10" {
+		t.Fatalf("bad song: %+v", s)
+	}
+	if got[1].Type != "artist" || got[1].ID != "UCaaa" || got[2].Type != "album" || got[2].ID != "MPREb_x" {
+		t.Fatalf("bad cards: %+v %+v", got[1], got[2])
+	}
+}

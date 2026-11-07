@@ -70,7 +70,7 @@ var streamClients = []clientCfg{
 var httpClient = &http.Client{Timeout: 20 * time.Second}
 
 func innertube(ctx context.Context, c clientCfg, endpoint string, body map[string]any) (map[string]any, error) {
-	client := map[string]any{"clientName": c.Name, "clientVersion": c.Version, "hl": "pt", "gl": "BR"}
+	client := map[string]any{"clientName": c.Name, "clientVersion": c.Version, "hl": "en", "gl": "US"}
 	for k, v := range c.Extra {
 		client[k] = v
 	}
@@ -184,78 +184,22 @@ func lastThumb(v any) string {
 }
 
 // ---------------------------------------------------------------------------
-// Search & radio
+// Types and small helpers shared by the browse/search code (see browse.go)
 // ---------------------------------------------------------------------------
 
 type Track struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Artist   string `json:"artist"`
+	ArtistID string `json:"artistId,omitempty"`
 	Album    string `json:"album,omitempty"`
+	AlbumID  string `json:"albumId,omitempty"`
 	Duration string `json:"duration,omitempty"`
 	Thumb    string `json:"thumb,omitempty"`
 }
 
-// Search filter param for "Songs" on YouTube Music.
-const songsFilter = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"
-
-func Search(ctx context.Context, q string) ([]Track, error) {
-	params, _ := url.QueryUnescape(songsFilter)
-	resp, err := innertube(ctx, webRemix, "search", map[string]any{"query": q, "params": params})
-	if err != nil {
-		return nil, err
-	}
-	return parseSearch(resp), nil
-}
-
-func parseSearch(resp map[string]any) []Track {
-	var items []map[string]any
-	findAll(resp, "musicResponsiveListItemRenderer", &items)
-	seen := map[string]bool{}
-	var tracks []Track
-	for _, it := range items {
-		id := str(it, "playlistItemData", "videoId")
-		if id == "" {
-			id = str(it, "overlay", "musicItemThumbnailOverlayRenderer", "content",
-				"musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId")
-		}
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		cols, _ := it["flexColumns"].([]any)
-		title := strings.Join(runsText(get(cols, 0, "musicResponsiveListItemFlexColumnRenderer", "text")), "")
-		var meta []string
-		for _, s := range runsText(get(cols, 1, "musicResponsiveListItemFlexColumnRenderer", "text")) {
-			if !isSep(s) {
-				meta = append(meta, s)
-			}
-		}
-		t := Track{ID: id, Title: title,
-			Thumb: lastThumb(get(it, "thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails"))}
-		// meta usually is: [type?] artist(s) ... album, duration
-		if n := len(meta); n > 0 {
-			if isDuration(meta[n-1]) {
-				t.Duration = meta[n-1]
-				meta = meta[:n-1]
-			}
-			if len(meta) > 0 && (meta[0] == "Música" || meta[0] == "Song" || meta[0] == "Vídeo" || meta[0] == "Video") {
-				meta = meta[1:]
-			}
-			if len(meta) >= 2 {
-				t.Album = meta[len(meta)-1]
-				t.Artist = strings.Join(meta[:len(meta)-1], ", ")
-			} else if len(meta) == 1 {
-				t.Artist = meta[0]
-			}
-		}
-		tracks = append(tracks, t)
-	}
-	return tracks
-}
-
 // isSep reports whether a text run is just a separator between artists or
-// fields (", ", " e ", " & ", " • ", …), which YouTube Music sends as runs.
+// fields (", ", " & ", " • ", ...), which YouTube Music sends as runs.
 func isSep(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "•", "·", ",", "e", "&", "and", "y", "et", "und", "feat.", "ft.":
@@ -277,51 +221,6 @@ func isDuration(s string) bool {
 	return true
 }
 
-// Radio returns the "up next" mix YouTube Music generates for a song.
-func Radio(ctx context.Context, id string) ([]Track, error) {
-	resp, err := innertube(ctx, webRemix, "next", map[string]any{
-		"videoId": id, "playlistId": "RDAMVM" + id, "isAudioOnly": true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return parseRadio(resp), nil
-}
-
-func parseRadio(resp map[string]any) []Track {
-	var items []map[string]any
-	findAll(resp, "playlistPanelVideoRenderer", &items)
-	seen := map[string]bool{}
-	var tracks []Track
-	for _, it := range items {
-		id := str(it, "videoId")
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		var byline []string
-		for _, s := range runsText(it["longBylineText"]) {
-			if strings.TrimSpace(s) != "•" && strings.TrimSpace(s) != "" {
-				byline = append(byline, s)
-			}
-		}
-		t := Track{
-			ID:       id,
-			Title:    strings.Join(runsText(it["title"]), ""),
-			Duration: strings.Join(runsText(it["lengthText"]), ""),
-			Thumb:    lastThumb(get(it, "thumbnail", "thumbnails")),
-		}
-		if len(byline) > 0 {
-			t.Artist = byline[0]
-		}
-		if len(byline) > 1 {
-			t.Album = byline[1]
-		}
-		tracks = append(tracks, t)
-	}
-	return tracks
-}
-
 // ---------------------------------------------------------------------------
 // Stream resolution
 // ---------------------------------------------------------------------------
@@ -331,6 +230,8 @@ type Stream struct {
 	Mime      string
 	UserAgent string
 	Expires   time.Time
+	Source    string            // resolver that produced the URL (for logs)
+	Headers   map[string]string // extra request headers the URL needs
 }
 
 type streamCache struct {
@@ -414,7 +315,7 @@ func resolveWith(ctx context.Context, c clientCfg, id, pref string) (Stream, err
 		return cands[i].bitrate > cands[j].bitrate
 	})
 	best := cands[0]
-	return Stream{URL: best.url, Mime: strings.Split(best.mime, ";")[0], UserAgent: c.UserAgent, Expires: expiry(best.url)}, nil
+	return Stream{URL: best.url, Mime: strings.Split(best.mime, ";")[0], UserAgent: c.UserAgent, Expires: expiry(best.url), Source: c.Name}, nil
 }
 
 func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
@@ -422,26 +323,42 @@ func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
 	if err != nil {
 		return Stream{}, errors.New("yt-dlp: not installed")
 	}
-	format := "bestaudio[acodec=opus]/bestaudio"
+	format := "bestaudio[acodec=opus]/bestaudio/best"
 	if pref == "aac" {
 		format = "bestaudio[ext=m4a]/bestaudio/best"
 	}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-f", format, "-g", "--no-warnings", "--no-playlist",
+	out, err := exec.CommandContext(ctx, bin, "-f", format, "-j", "--no-warnings", "--no-playlist",
 		"https://music.youtube.com/watch?v="+id).Output()
 	if err != nil {
 		return Stream{}, fmt.Errorf("yt-dlp: %v", err)
 	}
-	u := strings.TrimSpace(strings.Split(string(out), "\n")[0])
-	if u == "" {
-		return Stream{}, errors.New("yt-dlp: empty url")
+	var info struct {
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"http_headers"`
+		Ext     string            `json:"ext"`
+	}
+	if err := json.Unmarshal(out, &info); err != nil || info.URL == "" {
+		return Stream{}, errors.New("yt-dlp: no url in output")
+	}
+	// The URL is tied to the client yt-dlp used (TV, iOS, ...), so replay the
+	// exact headers it reports instead of assuming a user agent.
+	hdr := map[string]string{}
+	for k, v := range info.Headers {
+		if !strings.EqualFold(k, "range") {
+			hdr[k] = v
+		}
 	}
 	mime := "audio/webm"
-	if strings.Contains(u, "mime=audio%2Fmp4") {
+	if info.Ext == "m4a" || strings.Contains(info.URL, "mime=audio%2Fmp4") {
 		mime = "audio/mp4"
 	}
-	return Stream{URL: u, Mime: mime, UserAgent: webRemix.UserAgent, Expires: expiry(u)}, nil
+	ua := hdr["User-Agent"]
+	if ua == "" {
+		ua = webRemix.UserAgent
+	}
+	return Stream{URL: info.URL, Mime: mime, UserAgent: ua, Headers: hdr, Expires: expiry(info.URL), Source: "yt-dlp"}, nil
 }
 
 func expiry(u string) time.Time {

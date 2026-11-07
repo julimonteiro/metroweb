@@ -67,7 +67,7 @@ func (l *Library) Check() error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("faltando no PATH: %s (brew install %s)", strings.Join(missing, ", "), strings.Join(missing, " "))
+		return fmt.Errorf("missing from PATH: %s (brew install %s)", strings.Join(missing, ", "), strings.Join(missing, " "))
 	}
 	return os.MkdirAll(l.Dir, 0o755)
 }
