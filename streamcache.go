@@ -34,26 +34,39 @@ func cachedFile(id, pref string) string {
 	return ""
 }
 
-func serveFromCache(w http.ResponseWriter, r *http.Request, id, pref string) {
+// ensureCached makes sure the file for id/pref is in the cache (downloading it
+// with yt-dlp once, even when several requests ask at the same time) and
+// returns its path.
+func ensureCached(ctx context.Context, id, pref string) (string, error) {
 	if streamCacheDir == "" {
+		return "", fmt.Errorf("cache unavailable")
+	}
+	if p := cachedFile(id, pref); p != "" {
+		return p, nil
+	}
+	mu, _ := dlLocks.LoadOrStore(id+"|"+pref, &sync.Mutex{})
+	l := mu.(*sync.Mutex)
+	l.Lock()
+	defer l.Unlock()
+	if p := cachedFile(id, pref); p != "" {
+		return p, nil
+	}
+	if err := fetchToCache(ctx, id, pref); err != nil {
+		return "", err
+	}
+	if p := cachedFile(id, pref); p != "" {
+		return p, nil
+	}
+	return "", fmt.Errorf("download finished but the file is missing")
+}
+
+func serveFromCache(w http.ResponseWriter, r *http.Request, id, pref string) {
+	path, err := ensureCached(r.Context(), id, pref)
+	if err != nil {
+		log.Printf("stream cache %s: %v", id, err)
 		http.Error(w, "stream unavailable", 502)
 		return
 	}
-	if cachedFile(id, pref) == "" {
-		mu, _ := dlLocks.LoadOrStore(id+"|"+pref, &sync.Mutex{})
-		l := mu.(*sync.Mutex)
-		l.Lock()
-		if cachedFile(id, pref) == "" {
-			if err := fetchToCache(r.Context(), id, pref); err != nil {
-				l.Unlock()
-				log.Printf("stream cache %s: %v", id, err)
-				http.Error(w, "stream unavailable", 502)
-				return
-			}
-		}
-		l.Unlock()
-	}
-	path := cachedFile(id, pref)
 	f, err := os.Open(path)
 	if err != nil {
 		http.Error(w, "stream unavailable", 502)

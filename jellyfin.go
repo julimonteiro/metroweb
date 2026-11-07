@@ -22,6 +22,7 @@ type JellyfinIndex struct {
 
 	mu      sync.RWMutex
 	byTitle map[string]map[string]bool // folded title -> set of folded artists
+	songs   []JfSong
 	count   int
 	updated time.Time
 	lastErr string
@@ -71,17 +72,28 @@ func (j *JellyfinIndex) Kick() {
 	}
 }
 
+// JfSong is one song of the Jellyfin library.
+type JfSong struct {
+	Title   string
+	Artists []string // performers, album artist last
+	Album   string
+	Seconds int
+}
+
 type jfPage struct {
 	Items []struct {
-		Name        string   `json:"Name"`
-		Artists     []string `json:"Artists"`
-		AlbumArtist string   `json:"AlbumArtist"`
+		Name         string   `json:"Name"`
+		Artists      []string `json:"Artists"`
+		AlbumArtist  string   `json:"AlbumArtist"`
+		Album        string   `json:"Album"`
+		RunTimeTicks int64    `json:"RunTimeTicks"`
 	} `json:"Items"`
 	Total int `json:"TotalRecordCount"`
 }
 
 func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 	idx := map[string]map[string]bool{}
+	var songs []JfSong
 	count := 0
 	for start := 0; ; {
 		q := url.Values{"IncludeItemTypes": {"Audio"}, "Recursive": {"true"}, "Fields": {""},
@@ -117,6 +129,13 @@ func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 				}
 			}
 			count++
+			perf := it.Artists
+			if len(perf) == 0 && it.AlbumArtist != "" {
+				perf = []string{it.AlbumArtist}
+			}
+			if it.Name != "" && len(perf) > 0 {
+				songs = append(songs, JfSong{Title: it.Name, Artists: perf, Album: it.Album, Seconds: int(it.RunTimeTicks / 10_000_000)})
+			}
 		}
 		start += len(page.Items)
 		if len(page.Items) == 0 || start >= page.Total {
@@ -124,7 +143,7 @@ func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 		}
 	}
 	j.mu.Lock()
-	j.byTitle, j.count, j.updated = idx, count, time.Now()
+	j.byTitle, j.songs, j.count, j.updated = idx, songs, count, time.Now()
 	j.mu.Unlock()
 	log.Printf("jellyfin index: %d songs", count)
 	return nil
@@ -250,4 +269,14 @@ func titleKeys(title string) []string {
 func splitArtists(s string) []string {
 	s = strings.NewReplacer(" & ", ",", " and ", ",", " x ", ",", " feat. ", ",", " ft. ", ",").Replace(s)
 	return strings.Split(s, ",")
+}
+
+// Songs returns a copy of the indexed library (empty when disabled).
+func (j *JellyfinIndex) Songs() []JfSong {
+	if j == nil {
+		return nil
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return append([]JfSong(nil), j.songs...)
 }

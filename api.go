@@ -33,7 +33,7 @@ func call[T any](w http.ResponseWriter, r *http.Request, what string, fn func(ct
 	writeJSON(w, 200, v)
 }
 
-func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore, jf *JellyfinIndex, ly *LyricsService) {
+func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore, jf *JellyfinIndex, ly *LyricsService, im *Importer) {
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		if q == "" || len(q) > 200 {
@@ -166,6 +166,24 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 			return map[string]string{"videoId": id}, err
 		})
 	})
+	// How far the clip is shifted against the song (seconds), so the app can show
+	// the video in step with the song that is already playing.
+	mux.HandleFunc("/api/clip/offset", func(w http.ResponseWriter, r *http.Request) {
+		song, clip := r.URL.Query().Get("song"), r.URL.Query().Get("clip")
+		if !idRe.MatchString(song) || !idRe.MatchString(clip) || !clipAllowed(clip) {
+			apiErr(w, 400, "unknown clip")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Minute)
+		defer cancel()
+		res, err := MeasureClipOffset(ctx, song, clip)
+		if err != nil {
+			log.Printf("clip offset %s/%s: %v", song, clip, err)
+			apiErr(w, 502, "could not align the video")
+			return
+		}
+		writeJSON(w, 200, res)
+	})
 	// The clip file itself. Only ids that /api/clip/info vouched for are served,
 	// so this can't be used to fetch arbitrary videos onto the server.
 	mux.HandleFunc("/api/clip/", func(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +198,21 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 	// --- Jellyfin library awareness ---
 	mux.HandleFunc("/api/library/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, jf.Status())
+	})
+	// Import the whole Jellyfin library into "Liked songs" (background job).
+	mux.HandleFunc("/api/library/import", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, 200, im.Status())
+		case http.MethodPost:
+			if err := im.Start(); err != nil {
+				apiErr(w, 409, err.Error())
+				return
+			}
+			writeJSON(w, 200, im.Status())
+		default:
+			apiErr(w, 405, "method not allowed")
+		}
 	})
 	// POST {"tracks":[{"id","title","artist"}]} -> {"owned":[ids]}
 	mux.HandleFunc("/api/library/check", func(w http.ResponseWriter, r *http.Request) {

@@ -62,7 +62,9 @@ func main() {
 		go jf.Run()
 		lib.OnRescan = jf.Kick
 	}
-	registerAPI(mux, lib, playlists, stats, jf, NewLyricsService(*lyrics))
+	imp := NewImporter(jf, playlists, *dataDir)
+	imp.Schedule()
+	registerAPI(mux, lib, playlists, stats, jf, NewLyricsService(*lyrics), imp)
 	mux.HandleFunc("/api/img", handleImg)
 
 	streamCacheDir = filepath.Join(*dataDir, "cache")

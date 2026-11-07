@@ -10,9 +10,10 @@ A self-hosted YouTube Music web client, modelled on [Metrolist](https://github.c
 - **Playlists** and **Liked songs**, stored on the server so they follow you across devices
 - ♥ likes a song **and** downloads it to your library; the ⋮ menu has radio, play next, queue, add to playlist, download, go to artist/album and **share link**
 - Paste a YouTube / YouTube Music link into the search box to open that song, artist, album or playlist
+- **Your Jellyfin songs show up in Liked songs by themselves**: about once a week metroweb matches the songs in your Jellyfin library to their YouTube Music versions (strictly: title, artist and length must agree) and likes them, so you can play them here. It only looks up new songs, never re-likes something you un-liked, and has a discreet "Sync now" in the account menu
 - **Knows what you already own**: with a Jellyfin URL and API key, songs that are already in your Jellyfin library get a green ✓ and are never downloaded twice (matching by title and artist, ignoring accents and "(Radio Edit)"-style suffixes)
 - Downloads land in `Artist/Album/Title.m4a` with tags and a square cover, are never duplicated, and trigger a Jellyfin library rescan if you configure it
-- **Lyrics and music video** in the full-screen player (Song · Lyrics · Video switch): time-synced lyrics that follow the song (tap a line to jump there) and the official music video, kept in sync with the player controls
+- **Lyrics and music video** in the full-screen player (Song · Lyrics · Video switch): time-synced lyrics that follow the song (tap a line to jump there) and the official music video. Opening the video never interrupts the song: the music keeps playing and the clip fades in on top, aligned to the exact moment of the song (the server measures the clip's offset by comparing both audio tracks)
 - **Stats**: your top artists, songs and albums, an artists-over-time chart, genre breakdown, month-by-month favourites, listening streak and the hours you listen most (last 30 days, 3 months, year or all time)
 - Installable as a PWA
 
@@ -69,7 +70,8 @@ Still your job: keep `yt-dlp` and the image updated, use a strong unique passwor
 Set `JELLYFIN_URL` and `JELLYFIN_API_KEY` (Jellyfin: Dashboard > Advanced > API Keys > +). metroweb then:
 
 - reads the list of song titles and artists in your library (nothing else) every 10 minutes and marks songs you already have, skipping duplicate downloads;
-- asks Jellyfin to rescan after it downloads something, and refreshes its own index afterwards.
+- asks Jellyfin to rescan after it downloads something, and refreshes its own index afterwards;
+- once a week (and shortly after the first start) matches every Jellyfin song to its YouTube Music version and adds it to Liked songs; the state is kept in `<data>/import-state.json`.
 
 Jellyfin API keys have admin rights, so keep the key in a private `.env` file (never in git) and only on the server that runs metroweb.
 
@@ -116,7 +118,7 @@ All routes except `/login` and the PWA files require a session.
 | `GET/POST /api/playlists` · `GET/PATCH/DELETE /api/playlists/{id}` | Playlists (`liked` is the built-in Liked songs) |
 | `POST /api/playlists/{id}/tracks` · `DELETE /api/playlists/{id}/tracks/{trackId}` | Edit a playlist |
 | `GET /api/lyrics?title=&artist=&album=&duration=` | Time-synced (or plain) lyrics from LRCLIB |
-| `GET /api/clip/info?title=&artist=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
+| `GET /api/clip/info?title=&artist=` · `GET /api/clip/offset?song=&clip=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
 | `GET/POST /api/account` | Current user / change username and password |

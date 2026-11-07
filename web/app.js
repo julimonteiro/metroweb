@@ -752,7 +752,9 @@ async function accountSheet() {
       <input type="password" name="password" placeholder="New password (min. 10 characters; empty keeps it)" autocomplete="new-password" minlength="10" aria-label="New password">
       <div class="msg" id="accMsg"></div>
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
-    </form>`);
+    </form>
+    <div class="syncline" id="syncLine"></div>`);
+  if (jfEnabled) fillSync();
   $('#sheet').onclick = null;
   $('#logout').onclick = async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; };
   $('#accForm').onsubmit = async e => {
@@ -762,6 +764,23 @@ async function accountSheet() {
       m.className = 'msg ok'; m.textContent = 'Credentials updated.'; paintAccount(); setTimeout(closeSheet, 900);
     } catch (err) { m.textContent = err.message; }
   };
+}
+// Discreet Jellyfin sync status (the sync itself runs by itself about once a week).
+async function fillSync() {
+  const el = $('#syncLine'); if (!el) return;
+  try {
+    const [lib, imp] = await Promise.all([api('/api/library/status'), api('/api/library/import')]);
+    if (!$('#syncLine')) return;
+    const d = ts => new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const state = imp.running ? `syncing ${imp.done}/${imp.total}…`
+      : imp.lastRun ? `last sync ${d(imp.lastRun)}${imp.added ? `, +${imp.added} liked` : ''} · next ~${d(imp.next)}` : 'first sync is scheduled';
+    el.innerHTML = `Jellyfin · ${lib.songs} songs · ${state} ${imp.running ? '' : '<button type="button" id="syncNow">Sync now</button>'}`;
+    const b = $('#syncNow');
+    if (b) b.onclick = async () => {
+      try { await send('POST', '/api/library/import'); snack('Syncing your Jellyfin songs in the background'); fillSync(); const t = setInterval(async () => { if (!$('#syncLine')) return clearInterval(t); const s = await api('/api/library/import'); if (!s.running) { clearInterval(t); await Promise.all([loadLiked(), refreshPlaylists()]); fillSync(); snack(s.added ? `Liked ${s.added} songs from Jellyfin` : 'Jellyfin sync finished'); } else fillSync(); }, 3000); }
+      catch (e) { snack(e.message); }
+    };
+  } catch { el.textContent = ''; }
 }
 function paintAccount() {
   $$('.avatar').forEach(a => a.textContent = (acc.user || 'M')[0].toUpperCase());
@@ -778,7 +797,7 @@ let counted = false;     // has the current listen been reported to the stats?
 function playAt(i) {
   if (i < 0 || i >= queue.length) return;
   idx = i; counted = false;
-  if (clip) { clip = null; resetVideoEl(); setMode('song', true); }
+  if (mode === 'video') { stopVideo(); setTimeout(() => { if (mode === 'video') enterVideo(); }, 0); }
   const t = queue[i];
   audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
   audio.play().catch(e => console.warn(e));
@@ -988,7 +1007,7 @@ $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 // audio
 audio.addEventListener('play', updateNow); audio.addEventListener('pause', updateNow);
 audio.addEventListener('ended', () => { counted = false; next(true); });
-audio.addEventListener('error', () => { if (clip) { snack('The video could not be played'); exitVideo(); return; } if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
+audio.addEventListener('error', () => { if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
 let seeking = false;
 function paintBars() {
   const p = audio.duration ? audio.currentTime / audio.duration : 0;
@@ -1029,7 +1048,7 @@ let userScrollUntil = 0;
 
 function setMode(m, quiet) {
   if (m === 'video' && mode !== 'video') { enterVideo(); return; }
-  if (mode === 'video' && m !== 'video') exitVideo(true);
+  if (mode === 'video' && m !== 'video') stopVideo();
   mode = m;
   const fp = $('#fp'); fp.dataset.mode = m;
   $$('#fp .seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-selected', b.dataset.mode === m); });
@@ -1083,53 +1102,66 @@ $('#lyr').addEventListener('click', e => {
 });
 ['wheel', 'touchmove'].forEach(ev => $('#lyr').addEventListener(ev, () => { userScrollUntil = Date.now() + 3500; }, { passive: true }));
 
-// ---- music video: the clip file plays through the audio element (so every
-// control keeps working) and a muted <video> shows the picture, slaved to it.
+// ---- music video ----
+// The song's own audio keeps playing, untouched. The clip loads quietly in the
+// background into a muted <video>; once it is ready it is placed at the exact
+// point of the song (the server measures the clip's offset) and fades in.
+let clipToken = 0;
 async function clipFor(t) {
   if (clipCache.has(t.id)) return clipCache.get(t.id);
   const q = new URLSearchParams({ title: t.title, artist: t.artist || '', duration: t.duration || '' });
   const r = await api('/api/clip/info?' + q); clipCache.set(t.id, r.videoId || ''); return r.videoId || '';
 }
+function showVideoUI(on) {
+  mode = on ? 'video' : mode;
+  $('#fp').dataset.mode = on ? 'video' : mode;
+  $('#lyr').hidden = true; $('#vidbox').hidden = !on;
+  $$('#fp .seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.setAttribute('aria-selected', b.dataset.mode === mode); });
+}
+function giveUpVideo(msg) {
+  stopVideo(); mode = 'song'; setMode('song', true); if (msg) snack(msg);
+}
 async function enterVideo() {
   const t = cur(); if (!t) return;
-  const btn = $('#fp .seg [data-mode="video"]'); btn.disabled = true;
+  const token = ++clipToken;
+  showVideoUI(true);                                   // switch the view at once; audio is not touched
+  $('#vidPoster').src = img(t.thumb); $('#vidbox').classList.remove('live'); $('#vspin').hidden = false;
   let vid = '';
-  try { vid = await clipFor(t); } catch (e) { snack('Could not look for the music video'); }
-  btn.disabled = false;
-  if (!cur() || cur().id !== t.id) return;
-  if (!vid) { btn.classList.add('none'); snack('No official music video found for this song'); return; }
-  mode = 'video'; clip = { videoId: vid, trackId: t.id };
-  $('#fp').dataset.mode = 'video'; $('#lyr').hidden = true; $('#vidbox').hidden = false;
-  $$('#fp .seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === 'video'); b.setAttribute('aria-selected', b.dataset.mode === 'video'); });
-  const url = `/api/clip/${vid}`, v = $('#fpVid');
-  $('#vspin').hidden = false;
-  v.src = url; v.load();
-  audio.src = url; audio.play().catch(() => {});
-}
-function resetVideoEl() { const v = $('#fpVid'); v.pause(); v.removeAttribute('src'); v.load(); $('#vspin').hidden = true; }
-// leave the clip; by default go back to the song at roughly the same position
-function exitVideo(restore = true) {
-  if (!clip) return;
-  const t = cur(), pos = audio.currentTime, was = !audio.paused;
-  clip = null; resetVideoEl();
-  if (mode === 'video') setMode('song', true);
-  if (restore && t) {
-    audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
-    audio.addEventListener('loadedmetadata', () => { try { audio.currentTime = Math.max(0, Math.min(pos, (audio.duration || pos) - 1)); } catch {} }, { once: true });
-    if (was) audio.play().catch(() => {});
-  }
-}
-function syncVideo() {
-  if (!clip) return;
+  try { vid = await clipFor(t); } catch (e) { if (token === clipToken) giveUpVideo('Could not look for the music video'); return; }
+  if (token !== clipToken) return;
+  if (!vid) { $('#fp .seg [data-mode="video"]').classList.add('none'); giveUpVideo('No official music video found for this song'); return; }
   const v = $('#fpVid');
-  if (v.readyState > 0 && Math.abs(v.currentTime - audio.currentTime) > 0.35) v.currentTime = audio.currentTime;
+  clip = { videoId: vid, songId: t.id, offset: 0, ready: false };
+  const loaded = new Promise((res, rej) => { v.addEventListener('loadeddata', res, { once: true }); v.addEventListener('error', () => rej(new Error('video')), { once: true }); });
+  v.src = `/api/clip/${vid}`; v.load();
+  const offset = api(`/api/clip/offset?song=${t.id}&clip=${vid}`).catch(() => ({ offset: 0, confidence: 0 }));
+  try { await loaded; } catch { if (token === clipToken) giveUpVideo('The video could not be played'); return; }
+  const off = await offset;
+  if (token !== clipToken || !clip) return;
+  clip.offset = off.offset || 0; clip.ready = true;
+  placeVideo(true);
+  $('#vspin').hidden = true; $('#vidbox').classList.add('live');   // fade in over the cover
+}
+// where the video should be for the song's current position
+function placeVideo(force) {
+  if (!clip || !clip.ready) return;
+  const v = $('#fpVid'), target = audio.currentTime + clip.offset;
+  if (target < 0 || (isFinite(v.duration) && target > v.duration)) { v.pause(); return; }   // the clip has not started / has ended
+  const diff = target - v.currentTime;
+  if (force || Math.abs(diff) > 0.5) v.currentTime = target;
+  else v.playbackRate = Math.abs(diff) > 0.06 ? (diff > 0 ? 1.04 : 0.96) : 1;      // nudge gently instead of seeking
   if (!audio.paused && v.paused) v.play().catch(() => {});
 }
+function stopVideo() {
+  clipToken++; clip = null;
+  const box = $('#vidbox'), v = $('#fpVid');
+  box.classList.remove('live'); $('#vspin').hidden = true;
+  setTimeout(() => { if (!clip) { v.pause(); v.removeAttribute('src'); v.load(); } }, 350);   // after the fade-out
+}
+function syncVideo() { if (clip && clip.ready) placeVideo(false); }
 audio.addEventListener('pause', () => { if (clip) $('#fpVid').pause(); });
-audio.addEventListener('play', () => { if (clip) $('#fpVid').play().catch(() => {}); });
-audio.addEventListener('seeked', () => { if (clip) $('#fpVid').currentTime = audio.currentTime; });
-audio.addEventListener('waiting', () => { if (clip) $('#vspin').hidden = false; });
-audio.addEventListener('playing', () => { $('#vspin').hidden = true; });
+audio.addEventListener('play', () => { if (clip && clip.ready) placeVideo(true); });
+audio.addEventListener('seeked', () => { if (clip && clip.ready) placeVideo(true); });
 $$('#fp .seg button').forEach(b => b.addEventListener('click', () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); }));
 
 // ---------- Jellyfin awareness: mark songs you already own ----------
