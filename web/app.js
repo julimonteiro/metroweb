@@ -36,6 +36,7 @@ const IC = {
   edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
   back: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
   stats: 'M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z',
+  menu: 'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z',
   album: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z',
 };
 const ic = (n, s) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"${s ? ` style="width:${s}px;height:${s}px"` : ''}><path d="${IC[n]}"/></svg>`;
@@ -1187,6 +1188,13 @@ async function loadJellyfin() {
   if (jfEnabled) { new MutationObserver(scheduleOwnedScan).observe($('#view'), { childList: true, subtree: true }); scheduleOwnedScan(); }
 }
 
+// Desktop sidebar: collapsed to icons by default, expanded on demand (remembered).
+function setSide(open, quiet) {
+  document.body.classList.toggle('side-open', open);
+  const b = $('#sideToggle'); if (b) { b.setAttribute('aria-expanded', open); b.setAttribute('aria-label', open ? 'Collapse sidebar' : 'Expand sidebar'); }
+  if (!quiet) store.set('mw.sideOpen', open);
+}
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -1194,8 +1202,11 @@ function paintStatic() {
   $$('[data-ic]').forEach(e => { e.innerHTML = ic(e.dataset.ic); e.style.display = 'inline-flex'; });
   const nav = { home: ['home', 'Home'], search: ['search', 'Search'], library: ['lib', 'Library'], stats: ['stats', 'Stats'], queue: ['queue', 'Queue'] };
   $$('#nav button').forEach(b => b.querySelector('.pill').innerHTML = ic(nav[b.dataset.nav][0]));
-  $$('#side button[data-nav]').forEach(b => b.innerHTML = ic(nav[b.dataset.nav][0]) + nav[b.dataset.nav][1]);
-  $('#sideAcc').innerHTML = ic('user') + '<span id="sideUser">Account</span>';
+  $$('#side button[data-nav]').forEach(b => { b.innerHTML = ic(nav[b.dataset.nav][0]) + `<span class="lbl">${nav[b.dataset.nav][1]}</span>`; b.title = nav[b.dataset.nav][1]; });
+  $('#sideAcc').innerHTML = ic('user') + '<span class="lbl" id="sideUser">Account</span>'; $('#sideAcc').title = 'Account';
+  $('#sideToggle').innerHTML = ic('menu');
+  $('#sideToggle').onclick = () => setSide(!document.body.classList.contains('side-open'));
+  setSide(store.get('mw.sideOpen', false), true);
   $('#sideAcc').onclick = accountSheet;
   $('#fpClose').innerHTML = ic('down', 30); $('#fpMore').innerHTML = ic('more');
   $('#miniNext').innerHTML = ic('next'); $('#dPrev').innerHTML = ic('prev'); $('#dNext').innerHTML = ic('next');

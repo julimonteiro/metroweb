@@ -326,16 +326,23 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
 
 /* ---------- desktop (>= 900px) ---------- */
 @media (min-width: 900px) {
-  :root { --mini-h: 88px; --pad: 28px; }
-  #app { grid-template-columns: var(--side-w) 1fr; }
-  #side { display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; background: var(--bg); border-right: 1px solid rgba(255,255,255,.05); height: 100dvh; }
-  #side .logo { display: flex; align-items: center; gap: 12px; padding: 4px 12px 22px; font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
-  #side .logo img { width: 36px; height: 36px; border-radius: 11px; }
-  #side button.nv { height: 52px; border-radius: 26px; padding: 0 18px; display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 15px; }
+  :root { --mini-h: 88px; --pad: 28px; --side-w: 72px; }
+  body.side-open { --side-w: 240px; }
+  #app { grid-template-columns: var(--side-w) 1fr; transition: grid-template-columns .22s cubic-bezier(.2,.8,.2,1); }
+  #side { display: flex; flex-direction: column; gap: 4px; padding: 14px 12px 20px; background: var(--bg); border-right: 1px solid rgba(255,255,255,.05); height: 100dvh; overflow: hidden; }
+  #sideToggle { margin: 0 0 6px 2px; color: var(--on); }
+  #side .logo { display: flex; align-items: center; gap: 12px; padding: 4px 12px 18px; font-size: 20px; font-weight: 700; letter-spacing: -.3px; white-space: nowrap; }
+  #side .logo img { width: 36px; height: 36px; border-radius: 11px; flex: none; }
+  #side button.nv { height: 52px; border-radius: 26px; padding: 0 18px; display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 15px; white-space: nowrap; }
   #side button.nv:hover { background: rgba(255,255,255,.05); }
   #side button.nv.on { background: var(--high); color: var(--on); font-weight: 600; }
   #side button.nv.on svg { color: var(--accent); }
   #side .grow { flex: 1; }
+  /* collapsed (default): icons only */
+  body:not(.side-open) #side .lbl { display: none; }
+  body:not(.side-open) #side .logo { padding: 4px 0 18px; justify-content: center; }
+  body:not(.side-open) #side button.nv { width: 48px; padding: 0; justify-content: center; margin: 0 auto; }
+  body:not(.side-open) #sideToggle { margin-left: auto; margin-right: auto; }
   #nav { display: none; }
   #content { padding-bottom: 28px; }
   body.has-mini #content { padding-bottom: calc(var(--mini-h) + 28px); }
