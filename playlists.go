@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,38 @@ func NewPlaylistStore(dir string) (*PlaylistStore, error) {
 		s.lists = append([]*Playlist{{ID: likedID, Name: "Liked songs", Tracks: []Track{}, Created: now, Updated: now}}, s.lists...)
 	}
 	return s, nil
+}
+
+var (
+	videoIDRe   = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
+	browseIDRe2 = regexp.MustCompile(`^[A-Za-z0-9_-]{4,80}$`)
+)
+
+func clip(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// sanitizeTrack accepts only well-formed tracks from clients: a real video id,
+// bounded text fields, and https thumbnails.
+func sanitizeTrack(t Track) (Track, bool) {
+	if !videoIDRe.MatchString(t.ID) || strings.TrimSpace(t.Title) == "" {
+		return Track{}, false
+	}
+	out := Track{ID: t.ID, Title: clip(t.Title, 300), Artist: clip(t.Artist, 300), Album: clip(t.Album, 300), Duration: clip(t.Duration, 12)}
+	if browseIDRe2.MatchString(t.ArtistID) {
+		out.ArtistID = t.ArtistID
+	}
+	if browseIDRe2.MatchString(t.AlbumID) {
+		out.AlbumID = t.AlbumID
+	}
+	if strings.HasPrefix(t.Thumb, "https://") && len(t.Thumb) <= 500 {
+		out.Thumb = t.Thumb
+	}
+	return out, true
 }
 
 func (s *PlaylistStore) find(id string) *Playlist {
@@ -110,6 +143,12 @@ func (s *PlaylistStore) Create(name string) (PlaylistSummary, error) {
 	b := make([]byte, 6)
 	rand.Read(b)
 	now := time.Now()
+	s.mu.Lock()
+	n := len(s.lists)
+	s.mu.Unlock()
+	if n >= 200 {
+		return PlaylistSummary{}, errors.New("too many playlists")
+	}
 	p := &Playlist{ID: hex.EncodeToString(b), Name: name, Tracks: []Track{}, Created: now, Updated: now}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,8 +203,9 @@ func (s *PlaylistStore) AddTracks(id string, tracks []Track) (int, error) {
 		have[t.ID] = true
 	}
 	added := 0
-	for _, t := range tracks {
-		if t.ID == "" || t.Title == "" || have[t.ID] || len(p.Tracks) >= 5000 {
+	for _, raw := range tracks {
+		t, ok := sanitizeTrack(raw)
+		if !ok || have[t.ID] || len(p.Tracks) >= 5000 {
 			continue
 		}
 		have[t.ID] = true

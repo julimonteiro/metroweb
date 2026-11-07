@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var playlistIDRe = regexp.MustCompile(`^(liked|[0-9a-f]{12})$`)
+
 var browseIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{4,80}$`)
 
 func apiErr(w http.ResponseWriter, code int, msg string) {
@@ -163,8 +165,8 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore) {
 	mux.HandleFunc("/api/playlists/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/playlists/"), "/"), "/")
 		id := parts[0]
-		if id == "" {
-			apiErr(w, 400, "missing id")
+		if !playlistIDRe.MatchString(id) {
+			apiErr(w, 400, "bad playlist id")
 			return
 		}
 		switch {
@@ -200,6 +202,10 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore) {
 			}
 			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&in) != nil {
 				apiErr(w, 400, "invalid request")
+				return
+			}
+			if len(in.Tracks) > 1000 {
+				apiErr(w, 400, "too many tracks in one request")
 				return
 			}
 			n, err := pls.AddTracks(id, in.Tracks)

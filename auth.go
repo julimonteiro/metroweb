@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,10 +37,11 @@ type Auth struct {
 	trustProxy bool
 	loginPage  []byte
 
-	mu     sync.Mutex
-	c      creds
-	secret []byte
-	fails  map[string]*failState
+	mu          sync.Mutex
+	recentFails []time.Time
+	c           creds
+	secret      []byte
+	fails       map[string]*failState
 }
 
 type creds struct {
@@ -186,6 +188,60 @@ func (a *Auth) clientIP(r *http.Request) string {
 	return host
 }
 
+// isLocalClient reports whether the request clearly comes from this machine or
+// a private network (LAN, Docker, Tailscale). Anything that went through a
+// proxy is judged by the forwarded client address, and forwarding headers we are
+// not configured to trust make the client count as remote: a spoofed header can
+// only make a request look *less* local, never more.
+func (a *Auth) isLocalClient(r *http.Request) bool {
+	forwarded := r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" ||
+		r.Header.Get("CF-Connecting-IP") != "" || r.Header.Get("X-Real-IP") != ""
+	if forwarded && !a.trustProxy {
+		return false
+	}
+	return isPrivateIP(net.ParseIP(a.clientIP(r)))
+}
+
+var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)} // Tailscale
+
+func isPrivateIP(ip net.IP) bool {
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip))
+}
+
+// globalFailures counts failed logins from everyone, to slow down distributed
+// guessing that rotates IPs.
+func (a *Auth) noteGlobalFailure() (delay time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	kept := a.recentFails[:0]
+	for _, t := range a.recentFails {
+		if now.Sub(t) < 10*time.Minute {
+			kept = append(kept, t)
+		}
+	}
+	a.recentFails = append(kept, now)
+	if n := len(a.recentFails); n > 20 {
+		return 3 * time.Second
+	}
+	return 400 * time.Millisecond
+}
+
+var weakPasswords = map[string]bool{"password": true, "12345678": true, "123456789": true, "1234567890": true,
+	"qwertyuiop": true, "adminadmin": true, "metroweb": true, "password1": true, "letmein123": true}
+
+func checkNewPassword(user, pass string) string {
+	switch {
+	case len(pass) < 10:
+		return "The new password must be at least 10 characters."
+	case len(pass) > 200:
+		return "The new password is too long."
+	case strings.EqualFold(pass, user) || strings.EqualFold(pass, "admin") || weakPasswords[strings.ToLower(pass)]:
+		return "That password is too easy to guess. Pick something harder."
+	}
+	return ""
+}
+
 func (a *Auth) locked(ip string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -242,8 +298,14 @@ func (a *Auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request."})
 			return
 		}
+		if a.snapshot().Default && !a.isLocalClient(r) {
+			// The password is still admin/admin: never accept it from the internet.
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "This server still uses the default password. Sign in from your home network (or localhost) and change it first."})
+			return
+		}
 		if !a.check(r.PostForm.Get("user"), r.PostForm.Get("password")) {
 			a.fail(ip)
+			time.Sleep(a.noteGlobalFailure())
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Incorrect username or password."})
 			return
 		}
@@ -285,6 +347,7 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		if !a.check(a.snapshot().User, in.Current) {
 			a.fail(ip)
+			time.Sleep(a.noteGlobalFailure())
 			writeJSON(w, 401, map[string]string{"error": "Current password is incorrect."})
 			return
 		}
@@ -305,8 +368,8 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"user": user, "defaultCreds": a.snapshot().Default})
 			return
 		}
-		if len(in.Password) < 8 {
-			writeJSON(w, 400, map[string]string{"error": "The new password must be at least 8 characters."})
+		if msg := checkNewPassword(user, in.Password); msg != "" {
+			writeJSON(w, 400, map[string]string{"error": msg})
 			return
 		}
 		if err := a.setCreds(user, in.Password); err != nil {
@@ -323,14 +386,16 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 // publicPath: the login page itself and the PWA files (browsers fetch the
 // manifest without credentials).
 func publicPath(p string) bool {
-	return p == "/manifest.webmanifest" || p == "/icon.svg"
+	return p == "/manifest.webmanifest" || p == "/icon.svg" || p == "/login.css" || p == "/login.js"
 }
 
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "same-origin")
+		setSecurityHeaders(w, r)
+		if !a.sameOrigin(r) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Cross-site request blocked."})
+			return
+		}
 		switch {
 		case r.URL.Path == "/login":
 			a.handleLogin(w, r)
@@ -353,4 +418,50 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+// contentSecurityPolicy: only our own files; no inline scripts, no framing.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; manifest-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+func setSecurityHeaders(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("Content-Security-Policy", contentSecurityPolicy)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cross-Origin-Resource-Policy", "same-origin")
+	if isHTTPS(r) {
+		h.Set("Strict-Transport-Security", "max-age=31536000")
+	}
+}
+
+// sameOrigin rejects state-changing requests that a browser marks (or whose
+// Origin shows) as coming from another site. Requests without either header
+// (curl, scripts) pass; they still need a valid session.
+func (a *Auth) sameOrigin(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	if s := r.Header.Get("Sec-Fetch-Site"); s != "" && s != "same-origin" && s != "none" {
+		return false
+	}
+	if o := r.Header.Get("Origin"); o != "" {
+		u, err := url.Parse(o)
+		if err != nil {
+			return false
+		}
+		host := r.Host
+		if a.trustProxy {
+			if xh := r.Header.Get("X-Forwarded-Host"); xh != "" {
+				host = strings.TrimSpace(strings.Split(xh, ",")[0])
+			}
+		}
+		return strings.EqualFold(u.Host, host)
+	}
+	return true
 }

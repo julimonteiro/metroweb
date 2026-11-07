@@ -78,7 +78,7 @@ func fetchToCache(ctx context.Context, id, pref string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "yt-dlp", "-f", format, "--no-playlist", "--no-warnings", "--no-progress",
+	out, err := exec.CommandContext(ctx, "yt-dlp", "--ignore-config", "-f", format, "--no-playlist", "--no-warnings", "--no-progress",
 		"-o", filepath.Join(streamCacheDir, id+"."+pref+".%(ext)s"),
 		"https://music.youtube.com/watch?v="+id).CombinedOutput()
 	if err != nil {

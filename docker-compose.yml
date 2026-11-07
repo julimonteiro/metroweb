@@ -3,13 +3,27 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Only this machine can reach it directly. Put HTTPS in front (Caddy,
+      # Cloudflare Tunnel, Tailscale) to use it from elsewhere; see the README.
+      - "127.0.0.1:8080:8080"
     environment:
+      # Set to 1 ONLY when a reverse proxy/tunnel on this machine is the sole way in.
+      METROWEB_TRUST_PROXY: "0"
       # Optional: ask Jellyfin to rescan after every download.
       JELLYFIN_URL: ""
       JELLYFIN_API_KEY: ""
     volumes:
       - ./music:/music   # change to the folder Jellyfin watches
       - data:/data       # credentials, playlists, session secret
+    # --- hardening: the app can write only to /music, /data and /tmp ---
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 1g
 volumes:
   data:

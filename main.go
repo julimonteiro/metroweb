@@ -23,7 +23,7 @@ var webFS embed.FS
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 func main() {
-	addr := flag.String("addr", ":8080", "listen address (use 0.0.0.0:8080 to reach it from your phone on the LAN)")
+	addr := flag.String("addr", "127.0.0.1:8080", "listen address (127.0.0.1 = this machine only; use 0.0.0.0:8080 only behind HTTPS or a private network)")
 	home, _ := os.UserHomeDir()
 	libDir := flag.String("library", envOr("METROWEB_LIBRARY", filepath.Join(home, "Music", "metroweb")), "folder where songs are saved (the one Jellyfin watches)")
 	jfURL := flag.String("jellyfin-url", os.Getenv("JELLYFIN_URL"), "e.g. http://localhost:8096 (optional, enables automatic library rescan)")
@@ -65,7 +65,8 @@ func main() {
 	handler := auth.Middleware(mux)
 
 	log.Printf("metroweb listening on %s", *addr)
-	srv := &http.Server{Addr: *addr, Handler: logReq(handler), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: *addr, Handler: logReq(handler), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
+		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10}
 	log.Fatal(srv.ListenAndServe())
 }
 
@@ -160,9 +161,12 @@ func handleImg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req, _ := http.NewRequestWithContext(r.Context(), "GET", u.String(), nil)
-	resp, err := httpClient.Do(req)
+	// Never follow redirects: an allowed host must not be able to bounce us to
+	// an internal address.
+	noRedirect := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := noRedirect.Do(req)
 	if err != nil {
-		http.Error(w, err.Error(), 502)
+		http.Error(w, "image unavailable", 502)
 		return
 	}
 	defer resp.Body.Close()

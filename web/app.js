@@ -591,7 +591,7 @@ async function accountSheet() {
     <form id="accForm" autocomplete="off">
       <input type="password" name="current" placeholder="Current password" autocomplete="current-password" required>
       <input type="text" name="user" placeholder="Username" value="${esc(acc.user)}" maxlength="64" autocapitalize="none" spellcheck="false" aria-label="Username" required>
-      <input type="password" name="password" placeholder="New password (leave empty to keep it)" autocomplete="new-password" minlength="8" aria-label="New password">
+      <input type="password" name="password" placeholder="New password (min. 10 characters; empty keeps it)" autocomplete="new-password" minlength="10" aria-label="New password">
       <div class="msg" id="accMsg"></div>
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
     </form>`);

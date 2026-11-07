@@ -16,7 +16,8 @@ RUN apt-get update \
 
 COPY --from=build /metroweb /usr/local/bin/metroweb
 USER metroweb
-ENV METROWEB_LIBRARY=/music METROWEB_DATA=/data METROWEB_TRUST_PROXY=1
+# HOME/caches live in /tmp so the root filesystem can be mounted read-only.
+ENV METROWEB_LIBRARY=/music METROWEB_DATA=/data HOME=/tmp XDG_CACHE_HOME=/tmp/.cache DENO_DIR=/tmp/.deno
 VOLUME ["/music", "/data"]
 EXPOSE 8080
 ENTRYPOINT ["metroweb", "-addr", "0.0.0.0:8080"]

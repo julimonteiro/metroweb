@@ -329,7 +329,7 @@ func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-f", format, "-j", "--no-warnings", "--no-playlist",
+	out, err := exec.CommandContext(ctx, bin, "--ignore-config", "-f", format, "-j", "--no-warnings", "--no-playlist",
 		"https://music.youtube.com/watch?v="+id).Output()
 	if err != nil {
 		return Stream{}, fmt.Errorf("yt-dlp: %v", err)

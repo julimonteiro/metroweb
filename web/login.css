@@ -1,0 +1,47 @@
+:root {
+    --bg: #141218; --surface: #1d1b22; --high: #2b2930; --on: #e6e0e9; --muted: #cac4d0;
+    --outline: #49454f; --accent: #d0bcff; --on-accent: #381e72; --err: #f2b8b5;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--on);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+    background-image:
+      radial-gradient(60% 50% at 20% 0%, rgba(208,188,255,.22), transparent 70%),
+      radial-gradient(50% 40% at 100% 100%, rgba(127,103,190,.25), transparent 70%);
+    background-attachment: fixed;
+  }
+  main { width: 100%; max-width: 400px; }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-bottom: 28px; text-align: center; }
+  .brand img { width: 84px; height: 84px; border-radius: 26px; box-shadow: 0 12px 40px rgba(208,188,255,.25); }
+  .brand h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.5px; }
+  .brand p { margin: 0; color: var(--muted); font-size: 15px; }
+  form { background: var(--surface); border-radius: 28px; padding: 24px; display: grid; gap: 16px;
+    border: 1px solid rgba(255,255,255,.04); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .field { position: relative; }
+  .field input {
+    width: 100%; height: 56px; background: transparent; color: var(--on); font: inherit;
+    border: 1px solid var(--outline); border-radius: 16px; padding: 22px 48px 6px 16px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .field label {
+    position: absolute; left: 16px; top: 17px; color: var(--muted); pointer-events: none;
+    transition: all .15s; transform-origin: left top;
+  }
+  .field input:focus + label, .field input:not(:placeholder-shown) + label { top: 7px; font-size: 12px; color: var(--accent); }
+  .eye { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border: 0; background: none; color: var(--muted);
+    border-radius: 50%; cursor: pointer; display: grid; place-items: center; }
+  .eye:hover { background: rgba(255,255,255,.06); }
+  .eye svg { width: 22px; height: 22px; fill: currentColor; }
+  button.go {
+    height: 56px; border: 0; border-radius: 28px; background: var(--accent); color: var(--on-accent);
+    font: inherit; font-weight: 600; font-size: 16px; cursor: pointer; transition: transform .1s, filter .15s;
+  }
+  button.go:hover { filter: brightness(1.06); }
+  button.go:active { transform: scale(.98); }
+  button.go:disabled { opacity: .6; cursor: default; }
+  #err { color: var(--err); font-size: 14px; min-height: 20px; text-align: center; margin: -4px 0 -4px; }
+  footer { text-align: center; color: #948f99; font-size: 12px; margin-top: 20px; }

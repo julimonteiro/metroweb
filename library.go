@@ -137,7 +137,7 @@ func (l *Library) download(id string) error {
 		// Drop the long auto-generated description from the tags.
 		"--parse-metadata", ":(?P<meta_description>)", "--parse-metadata", ":(?P<meta_synopsis>)",
 		"--download-archive", l.archivePath(),
-		"--no-playlist", "--no-progress", "--no-warnings",
+		"--ignore-config", "--no-playlist", "--no-progress", "--no-warnings",
 		"-o", tmpl,
 		"https://music.youtube.com/watch?v=" + id,
 	}

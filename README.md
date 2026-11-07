@@ -23,7 +23,7 @@ docker compose up -d --build
 
 On Linux, make sure the music folder is writable by UID 1000 (`sudo chown 1000:1000 music`).
 
-Open `http://localhost:8080`. The initial login is **`admin` / `admin`**: change it from the account menu (avatar on phones, "admin" in the sidebar on desktop). A banner reminds you until you do.
+Open `http://localhost:8080`. The initial login is **`admin` / `admin`** (accepted only from your own network until you change it): change it from the account menu (avatar on phones, "admin" in the sidebar on desktop). A banner reminds you until you do.
 
 The image bundles `yt-dlp`, `ffmpeg` and Deno. Rebuild it now and then (`docker compose build --no-cache`) to pick up a fresh `yt-dlp`.
 
@@ -32,12 +32,12 @@ The image bundles `yt-dlp`, `ffmpeg` and Deno. Rebuild it now and then (`docker 
 You need Go 1.24+, `yt-dlp` and `ffmpeg` on your PATH (plus Deno or Node for yt-dlp's JavaScript challenges).
 
 ```sh
-go run . -library ~/Music/metroweb -addr 0.0.0.0:8080
+go run . -library ~/Music/metroweb
 ```
 
 | Flag | Env | What it does |
 |---|---|---|
-| `-addr` | | Listen address (default `:8080`) |
+| `-addr` | | Listen address (default `127.0.0.1:8080`, this machine only) |
 | `-library` | `METROWEB_LIBRARY` | Folder where songs are saved (the one Jellyfin watches) |
 | `-jellyfin-url` | `JELLYFIN_URL` | e.g. `http://jellyfin:8096`; enables the automatic rescan |
 | `-jellyfin-key` | `JELLYFIN_API_KEY` | API key (Dashboard > API Keys) |
@@ -45,19 +45,36 @@ go run . -library ~/Music/metroweb -addr 0.0.0.0:8080
 | `-data` | `METROWEB_DATA` | Data folder: credentials (hashed), playlists, session secret, stream cache |
 | `-trust-proxy` | `METROWEB_TRUST_PROXY=1` | Trust `X-Forwarded-For` (behind a reverse proxy or tunnel) for login rate limiting |
 
+## Security
+
+metroweb is meant to be reachable from the internet, so it is locked down by default:
+
+- **Login required for everything** (except the sign-in page): PBKDF2-hashed password, signed `HttpOnly` + `SameSite=Lax` session cookie (`Secure` over HTTPS), 5-minute lockout after 5 failed attempts per IP plus a global slowdown against distributed guessing. Changing the password signs out every other device.
+- **The default `admin`/`admin` password is never accepted from the internet.** While it is still in place, sign-in only works from localhost or a private network (LAN, Docker, Tailscale); anything arriving through a proxy or with forwarding headers counts as remote. Change it first, from home.
+- New passwords need at least 10 characters and cannot be trivially guessable.
+- **CSRF protection** (cross-site writes are rejected), a strict **Content-Security-Policy** (own scripts only, no framing), HSTS over HTTPS, and no referrer leakage.
+- **Everything from the client is validated**: video/browse ids against strict patterns before they reach `yt-dlp`, playlist data sanitised and size-capped, the cover-art proxy limited to Google/YouTube hosts with redirects disabled (no SSRF), request bodies and timeouts bounded.
+- **Nothing can run commands on your machine through the app.** The only external programs are `yt-dlp` and `ffmpeg`, always started with fixed arguments and validated ids (never through a shell), and with the user's yt-dlp config ignored.
+- **Listens on `127.0.0.1` by default.** Expose it only through HTTPS or a private network. The Docker setup publishes `127.0.0.1:8080` only, runs as a non-root user with a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and write access only to `/music`, `/data` and `/tmp`. Prefer Docker over running the binary directly: that way a bug in a downloader could at worst touch your music folder.
+
+Still your job: keep `yt-dlp` and the image updated, use a strong unique password, and keep HTTPS in front of it.
+
 ## Reaching it from outside your home
 
-The server has a login (PBKDF2-hashed password, signed `HttpOnly` session cookie, 5-minute lockout after 5 failed attempts per IP), but **always use HTTPS** when going over the internet, otherwise your password travels in clear text. Options:
+Always use **HTTPS** over the internet, otherwise your password travels in clear text. Set `METROWEB_TRUST_PROXY=1` only when a reverse proxy or tunnel on the same machine is the *only* way in (otherwise anyone could spoof `X-Forwarded-For`). Options:
 
 1. **Tailscale** (simplest and safest): install it on the server and your phone and browse to `http://your-server:8080`; nothing is exposed to the internet. `tailscale serve` gives you HTTPS for free.
-2. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8080` (or a named tunnel on your domain). HTTPS included.
-3. **A reverse proxy** (Caddy, nginx, Traefik) with a Let's Encrypt certificate. With Caddy:
+2. **A reverse proxy with HTTPS**, the same way you would publish Jellyfin. With Caddy:
 
    ```
    music.example.com {
+       encode zstd gzip
        reverse_proxy localhost:8080
    }
    ```
+
+   (With Cloudflare DNS challenge: add `tls { dns cloudflare {env.CF_API_TOKEN} }` as in the Caddy-Cloudflare build.)
+3. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8080` (or a named tunnel on your domain). HTTPS included.
 
 **Change the `admin` password before exposing the server.** Anyone who is signed in can queue downloads onto your disk.
 
