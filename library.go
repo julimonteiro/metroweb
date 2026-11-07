@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -115,109 +113,6 @@ func (l *Library) worker() {
 	}
 }
 
-type ytInfo struct {
-	Title       string   `json:"title"`
-	Track       string   `json:"track"`
-	Artist      string   `json:"artist"`
-	Artists     []string `json:"artists"`
-	Creator     string   `json:"creator"`
-	Uploader    string   `json:"uploader"`
-	Album       string   `json:"album"`
-	TrackNumber int      `json:"track_number"`
-	ReleaseYear int      `json:"release_year"`
-	Genre       string   `json:"genre"`
-	Thumbnails  []struct {
-		URL string `json:"url"`
-	} `json:"thumbnails"`
-}
-
-func firstNonEmpty(v ...string) string {
-	for _, s := range v {
-		if strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
-	return ""
-}
-
-var badPath = strings.NewReplacer("/", "-", ":", "-", "\\", "-", "*", "", "?", "", "\"", "'", "<", "", ">", "", "|", "-")
-
-func safeName(s, def string) string {
-	s = strings.Trim(badPath.Replace(strings.TrimSpace(s)), ". ")
-	if s == "" {
-		return def
-	}
-	return s
-}
-
-// info asks yt-dlp for metadata only; the audio itself is fetched with our own
-// resolver because yt-dlp's download requests currently get 403 from googlevideo.
-func (l *Library) info(ctx context.Context, id string) (ytInfo, error) {
-	var in ytInfo
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "yt-dlp", "-J", "--no-playlist", "--no-warnings",
-		"--ignore-no-formats-error", "https://music.youtube.com/watch?v="+id)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if i := strings.LastIndex(msg, "\n"); i >= 0 {
-			msg = msg[i+1:]
-		}
-		return in, fmt.Errorf("yt-dlp: %v: %s", err, msg)
-	}
-	return in, json.Unmarshal(out, &in)
-}
-
-// fetchTo downloads url into dst. For audio streams (ua set) it uses bounded
-// Range chunks: googlevideo answers 403 to open-ended ranges on these URLs.
-func fetchTo(ctx context.Context, url, ua, dst string) error {
-	f, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	const chunk = 4 << 20
-	for off := int64(0); ; {
-		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if ua != "" {
-			req.Header.Set("User-Agent", ua)
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", off, off+chunk-1))
-		}
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode >= 300 {
-			resp.Body.Close()
-			return fmt.Errorf("HTTP %d", resp.StatusCode)
-		}
-		n, err := io.Copy(f, resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return err
-		}
-		if ua == "" || resp.StatusCode != http.StatusPartialContent || n < chunk {
-			return nil
-		}
-		off += n
-	}
-}
-
-// coverURL prefers the square album art (googleusercontent) over the 16:9 video frame.
-func coverURL(in ytInfo, id string) string {
-	for i := len(in.Thumbnails) - 1; i >= 0; i-- {
-		u := in.Thumbnails[i].URL
-		if strings.Contains(u, "googleusercontent.com") {
-			if k := strings.Index(u, "="); k > 0 {
-				u = u[:k] + "=w800-h800-l90-rj"
-			}
-			return u
-		}
-	}
-	return "https://i.ytimg.com/vi/" + id + "/maxresdefault.jpg"
-}
-
 func (l *Library) download(id string) error {
 	if err := l.Check(); err != nil {
 		return err
@@ -225,115 +120,38 @@ func (l *Library) download(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	in, err := l.info(ctx, id)
-	if err != nil {
-		return err
-	}
-	artists := in.Artists
-	if len(artists) == 0 {
-		artists = []string{firstNonEmpty(in.Artist, in.Creator, in.Uploader, "Desconhecido")}
-	}
-	albumArtist := artists[0]
-	title := firstNonEmpty(in.Track, in.Title, id)
-	album := firstNonEmpty(in.Album, "Singles")
-
 	// Layout Jellyfin understands: Artist/Album/NN - Title.m4a
-	name := safeName(title, id)
-	if in.TrackNumber > 0 {
-		name = fmt.Sprintf("%02d - %s", in.TrackNumber, name)
-	}
-	dir := filepath.Join(l.Dir, safeName(albumArtist, "Desconhecido"), safeName(album, "Singles"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	final := filepath.Join(dir, name+".m4a")
+	// First artist only, so the folder matches album_artist and albums don't split.
+	tmpl := filepath.Join(l.Dir,
+		"%(artists.0,artist,creator,uploader|Desconhecido)s",
+		"%(album|Singles)s",
+		"%(track_number&{:02d} - |)s%(track,title)s.%(ext)s")
 
-	tmp, err := os.MkdirTemp("", "metroweb-dl-")
-	if err != nil {
-		return err
+	args := []string{
+		"-f", "bestaudio[ext=m4a]/bestaudio/best",
+		"-x", "--audio-format", "m4a",
+		"--embed-metadata", "--embed-thumbnail", "--convert-thumbnails", "jpg",
+		// YT Music thumbnails are 16:9 with bars; crop to a square cover.
+		"--ppa", `ThumbnailsConvertor+FFmpeg_o:-c:v mjpeg -vf crop="'if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'"`,
+		"--parse-metadata", "%(artists.0,artist)s:^(?P<album_artist>[^,]+)",
+		// Drop the long auto-generated description from the tags.
+		"--parse-metadata", ":(?P<meta_description>)", "--parse-metadata", ":(?P<meta_synopsis>)",
+		"--download-archive", l.archivePath(),
+		"--no-playlist", "--no-progress", "--no-warnings",
+		"-o", tmpl,
+		"https://music.youtube.com/watch?v=" + id,
 	}
-	defer os.RemoveAll(tmp)
-
-	audio := filepath.Join(tmp, "audio.m4a")
-	for attempt := 0; ; attempt++ {
-		s, err := ResolveStream(ctx, id, "aac")
-		if err != nil {
-			return err
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if i := strings.LastIndex(msg, "\n"); i >= 0 {
+			msg = msg[i+1:]
 		}
-		err = fetchTo(ctx, s.URL, s.UserAgent, audio)
-		if err == nil {
-			break
-		}
-		// Cached URL may be stale/rejected: drop it and resolve again once.
-		cache.mu.Lock()
-		delete(cache.m, id+"|aac")
-		cache.mu.Unlock()
-		if attempt >= 1 {
-			return fmt.Errorf("baixando áudio: %w", err)
-		}
-	}
-	cover := filepath.Join(tmp, "cover.jpg")
-	haveCover := fetchTo(ctx, coverURL(in, id), "", cover) == nil
-
-	args := []string{"-y", "-v", "error", "-i", audio}
-	if haveCover {
-		args = append(args, "-i", cover)
-	}
-	args = append(args, "-map", "0:a")
-	if haveCover {
-		// Crop to a centered square so Jellyfin shows a proper album cover.
-		args = append(args, "-map", "1:v", "-c:v", "mjpeg", "-vf", "crop='min(iw,ih)':'min(iw,ih)'",
-			"-disposition:v:0", "attached_pic")
-	}
-	args = append(args, "-c:a", "copy",
-		"-metadata", "title="+title,
-		"-metadata", "artist="+strings.Join(artists, ", "),
-		"-metadata", "album_artist="+albumArtist,
-		"-metadata", "album="+album,
-		"-metadata", "comment=youtube:"+id)
-	if in.TrackNumber > 0 {
-		args = append(args, "-metadata", fmt.Sprintf("track=%d", in.TrackNumber))
-	}
-	if in.ReleaseYear > 0 {
-		args = append(args, "-metadata", fmt.Sprintf("date=%d", in.ReleaseYear))
-	}
-	if in.Genre != "" {
-		args = append(args, "-metadata", "genre="+in.Genre)
-	}
-	out := filepath.Join(tmp, "out.m4a")
-	args = append(args, "-movflags", "+faststart", out)
-	if b, err := exec.CommandContext(ctx, "ffmpeg", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("ffmpeg: %v: %s", err, strings.TrimSpace(string(b)))
-	}
-	if err := moveFile(out, final); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(l.archivePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err == nil {
-		fmt.Fprintf(f, "youtube %s\n", id)
-		f.Close()
+		return fmt.Errorf("%v: %s", err, msg)
 	}
 	return nil
-}
-
-func moveFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 // scheduleRescan debounces Jellyfin library refreshes so a batch of downloads

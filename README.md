@@ -10,7 +10,20 @@ go run . -addr 0.0.0.0:8080    # acessível pelo celular na mesma rede
 go build -o metroweb .         # binário único, HTML já embutido
 ```
 
-Opcional, mas recomendado: ter `yt-dlp` no PATH (`brew install yt-dlp`). Se os clientes innertube pararem de devolver stream, ele é usado como fallback.
+Requer `yt-dlp` e `ffmpeg` no PATH. O `yt-dlp` é o primeiro resolvedor de stream e é quem faz os downloads; os clientes innertube ficam de reserva.
+
+### Se o YouTube devolver 403 / só o formato 18
+
+1. Mantenha o yt-dlp atualizado (`pip install -U yt-dlp`): versões com mais de ~90 dias param de funcionar.
+2. Instale o provedor de PO token [bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) (modo script): clone em `~/bgutil-ytdlp-pot-provider`, rode `npm ci && npx tsc` em `server/` e coloque o zip do plugin em `~/.config/yt-dlp/plugins/`.
+
+### Download pra biblioteca (Jellyfin)
+
+```sh
+go run . -library ~/Music/metroweb -jellyfin-url http://localhost:8096 -jellyfin-key <API_KEY>
+```
+
+Botões ⬇ (baixar) e ♥ (favoritar e baixar). Salva em `Artista/Álbum/Título.m4a` com tags e capa quadrada; `.metroweb-archive.txt` evita duplicatas. Se URL e chave do Jellyfin forem passadas, pede rescan.
 
 ## Como funciona
 

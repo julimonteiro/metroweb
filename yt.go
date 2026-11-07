@@ -341,23 +341,24 @@ func ResolveStream(ctx context.Context, id, pref string) (Stream, error) {
 	cache.mu.Unlock()
 
 	var errs []string
-	for _, c := range streamClients {
-		s, err := resolveWith(ctx, c, id, pref)
-		if err == nil {
-			cache.mu.Lock()
-			cache.m[key] = s
-			cache.mu.Unlock()
-			return s, nil
-		}
-		errs = append(errs, err.Error())
-	}
-	// Last resort: yt-dlp, if installed. It keeps up with YouTube changes.
-	if s, err := resolveYtDlp(ctx, id, pref); err == nil {
+	remember := func(s Stream) Stream {
 		cache.mu.Lock()
 		cache.m[key] = s
 		cache.mu.Unlock()
-		return s, nil
+		return s
+	}
+	// yt-dlp first: with its PO-token plugin it returns URLs that stream the whole
+	// file, while the bare innertube clients get 403 after ~1 MB.
+	if s, err := resolveYtDlp(ctx, id, pref); err == nil {
+		return remember(s), nil
 	} else {
+		errs = append(errs, err.Error())
+	}
+	for _, c := range streamClients {
+		s, err := resolveWith(ctx, c, id, pref)
+		if err == nil {
+			return remember(s), nil
+		}
 		errs = append(errs, err.Error())
 	}
 	return Stream{}, errors.New(strings.Join(errs, " | "))
@@ -413,9 +414,9 @@ func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
 	}
 	format := "bestaudio[acodec=opus]/bestaudio"
 	if pref == "aac" {
-		format = "bestaudio[ext=m4a]/bestaudio"
+		format = "bestaudio[ext=m4a]/bestaudio/best"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "-f", format, "-g", "--no-warnings", "--no-playlist",
 		"https://music.youtube.com/watch?v="+id).Output()
