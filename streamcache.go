@@ -18,8 +18,10 @@ import (
 var streamCacheDir string
 
 var (
-	dlLocks   sync.Map // id|pref -> *sync.Mutex
-	cacheKeep = 150    // max cached files
+	dlLocks    sync.Map                 // id|pref -> *sync.Mutex
+	cacheKeep  = 150                    // max cached files
+	cacheBytes = int64(3 << 30)         // max total size of the cache (3 GB)
+	videoSlots = make(chan struct{}, 2) // at most two clip downloads at once
 )
 
 func cachedFile(id, pref string) string {
@@ -60,7 +62,12 @@ func serveFromCache(w http.ResponseWriter, r *http.Request, id, pref string) {
 	defer f.Close()
 	st, _ := f.Stat()
 	ct := "audio/webm"
-	if strings.HasSuffix(path, ".m4a") || strings.HasSuffix(path, ".mp4") {
+	switch {
+	case pref == "video" && strings.HasSuffix(path, ".mp4"):
+		ct = "video/mp4"
+	case pref == "video":
+		ct = "video/webm"
+	case strings.HasSuffix(path, ".m4a") || strings.HasSuffix(path, ".mp4"):
 		ct = "audio/mp4"
 	}
 	w.Header().Set("Content-Type", ct)
@@ -73,14 +80,26 @@ func fetchToCache(ctx context.Context, id, pref string) error {
 		return err
 	}
 	format := "bestaudio[acodec=opus]/bestaudio/best"
-	if pref == "aac" {
+	extra := []string{}
+	timeout := 2 * time.Minute
+	switch pref {
+	case "aac":
 		format = "bestaudio[ext=m4a]/bestaudio/best"
+	case "video":
+		// 720p at most, merged into one mp4 so a single file carries picture and sound.
+		format = "bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/b[height<=720][vcodec^=avc1]/bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b" // H.264 first: it plays everywhere
+		extra = []string{"--merge-output-format", "mp4"}
+		timeout = 5 * time.Minute
+		videoSlots <- struct{}{}
+		defer func() { <-videoSlots }()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "yt-dlp", "--ignore-config", "-f", format, "--no-playlist", "--no-warnings", "--no-progress",
+	args := append([]string{"--ignore-config", "-f", format}, extra...)
+	args = append(args, "--no-playlist", "--no-warnings", "--no-progress",
 		"-o", filepath.Join(streamCacheDir, id+"."+pref+".%(ext)s"),
-		"https://music.youtube.com/watch?v="+id).CombinedOutput()
+		"https://music.youtube.com/watch?v="+id)
+	out, err := exec.CommandContext(ctx, "yt-dlp", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if i := strings.LastIndex(msg, "\n"); i >= 0 {
@@ -94,21 +113,25 @@ func fetchToCache(ctx context.Context, id, pref string) error {
 
 func pruneCache() {
 	entries, err := os.ReadDir(streamCacheDir)
-	if err != nil || len(entries) <= cacheKeep {
+	if err != nil {
 		return
 	}
 	type fi struct {
 		path string
 		mod  time.Time
+		size int64
 	}
 	var files []fi
+	var total int64
 	for _, e := range entries {
 		if info, err := e.Info(); err == nil && !e.IsDir() {
-			files = append(files, fi{filepath.Join(streamCacheDir, e.Name()), info.ModTime()})
+			files = append(files, fi{filepath.Join(streamCacheDir, e.Name()), info.ModTime(), info.Size()})
+			total += info.Size()
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].mod.Before(files[j].mod) })
-	for i := 0; i < len(files)-cacheKeep; i++ {
+	for i := 0; i < len(files) && (len(files)-i > cacheKeep || total > cacheBytes); i++ {
 		os.Remove(files[i].path)
+		total -= files[i].size
 	}
 }

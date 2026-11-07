@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,7 +33,7 @@ func call[T any](w http.ResponseWriter, r *http.Request, what string, fn func(ct
 	writeJSON(w, 200, v)
 }
 
-func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore, jf *JellyfinIndex) {
+func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore, jf *JellyfinIndex, ly *LyricsService) {
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		if q == "" || len(q) > 200 {
@@ -146,6 +147,34 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 	})
 	mux.HandleFunc("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, lib.Status())
+	})
+
+	// --- lyrics and music videos (full-screen player only) ---
+	mux.HandleFunc("/api/lyrics", lyricsHandler(ly))
+	mux.HandleFunc("/api/clip/info", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		title, artist := strings.TrimSpace(q.Get("title")), strings.TrimSpace(q.Get("artist"))
+		if title == "" || artist == "" || len(title) > 200 || len(artist) > 200 {
+			apiErr(w, 400, "title and artist are required")
+			return
+		}
+		call(w, r, "clip "+title, func(ctx context.Context) (map[string]string, error) {
+			id, err := FindClip(ctx, title, artist, durationFromParam(q.Get("duration")))
+			if id != "" {
+				allowClip(id)
+			}
+			return map[string]string{"videoId": id}, err
+		})
+	})
+	// The clip file itself. Only ids that /api/clip/info vouched for are served,
+	// so this can't be used to fetch arbitrary videos onto the server.
+	mux.HandleFunc("/api/clip/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/clip/")
+		if !idRe.MatchString(id) || !clipAllowed(id) {
+			apiErr(w, 404, "unknown clip")
+			return
+		}
+		serveFromCache(w, r, id, "video")
 	})
 
 	// --- Jellyfin library awareness ---
@@ -294,4 +323,13 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 			apiErr(w, 405, "method not allowed")
 		}
 	})
+}
+
+// clips that /api/clip/info found recently (id -> expiry)
+var allowedClips sync.Map
+
+func allowClip(id string) { allowedClips.Store(id, time.Now().Add(12*time.Hour)) }
+func clipAllowed(id string) bool {
+	v, ok := allowedClips.Load(id)
+	return ok && time.Now().Before(v.(time.Time))
 }

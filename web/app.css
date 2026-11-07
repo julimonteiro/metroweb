@@ -245,8 +245,32 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
 #fp .bigplay svg { width: 36px; height: 36px; }
 #fp.playing .bigplay { border-radius: 32px; }
 #fp .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; }
-#fp .foot button { height: 44px; padding: 0 16px; border-radius: 22px; background: rgba(255,255,255,.07); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--on); flex: 1; min-width: 0; }
+#fp .foot button { white-space: nowrap; height: 44px; padding: 0 12px; border-radius: 22px; background: rgba(255,255,255,.07); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--on); flex: 1; min-width: 0; }
 #fp .foot button.done { color: var(--ok); }
+
+/* ---------- player view switch, lyrics, video (full-screen player only) ---------- */
+.seg { display: inline-flex; background: rgba(255,255,255,.08); border-radius: 22px; padding: 3px; gap: 2px; }
+.seg button { height: 34px; padding: 0 16px; border-radius: 18px; font-size: 13px; font-weight: 600; color: var(--muted); transition: background .2s, color .2s; text-align: center; }
+.seg button.on { background: var(--accent); color: var(--on-accent); }
+.seg button.none { opacity: .4; }
+.lyr { width: 100%; height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 38% 4px; text-align: left;
+  -webkit-mask-image: linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%); mask-image: linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%); overscroll-behavior: contain; }
+.lyr::-webkit-scrollbar { display: none; }
+.lyr .ln { font-size: 26px; font-weight: 800; letter-spacing: -.4px; line-height: 1.22; padding: 8px 6px; margin: 0; color: var(--on); opacity: .32; border-radius: 14px;
+  transition: opacity .3s, transform .3s, color .3s; transform-origin: left center; cursor: pointer; overflow-wrap: anywhere; }
+.lyr .ln:hover { opacity: .6; }
+.lyr .ln.past { opacity: .4; }
+.lyr .ln.cur { opacity: 1; transform: scale(1.03); }
+.lyr .plain { white-space: pre-wrap; font-size: 18px; line-height: 1.6; color: var(--on); opacity: .9; padding-bottom: 40px; }
+.lyr .tag { display: inline-block; font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+.lyr .msg { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); padding: 0 24px; gap: 10px; }
+#fp[data-mode="lyrics"] .cover, #fp[data-mode="video"] .cover { display: none; }
+#fp[data-mode="lyrics"] .stage { align-items: stretch; }
+.vidbox { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 20px; overflow: hidden; background: #000; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+.vidbox video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+.vspin { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; background: rgba(0,0,0,.55); color: #fff; font-size: 14px; }
+.vspin .ring { width: 38px; height: 38px; border-radius: 50%; border: 4px solid rgba(255,255,255,.25); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- sheet / dialog ---------- */
 #scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 60; opacity: 0; pointer-events: none; transition: opacity .2s; }
@@ -327,12 +351,15 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
     grid-template-columns: minmax(200px, 1fr) minmax(320px, 560px) minmax(220px, 1fr); box-shadow: none; border-top: 1px solid rgba(255,255,255,.05); cursor: default; }
   #mini .info { padding: 0 16px; cursor: pointer; }
   #mini img { width: 60px; height: 60px; border-radius: 12px; }
-  #mini .center { display: flex; flex-direction: column; align-items: center; }
+  #mini .center { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 64px; }
   #mini .center .ctl { padding: 0; display: flex; align-items: center; gap: 2px; }
   #mini .center .play { background: var(--accent); color: var(--on-accent); width: 44px; height: 44px; }
-  #mini .center .seekrow { display: flex; align-items: center; gap: 10px; width: 100%; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  #mini .center input[type=range] { height: 20px; }
-  #mini .right { display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding-right: 14px; }
+  #mini .center .seekrow { display: flex; align-items: center; gap: 10px; width: 100%; height: 20px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #mini .center input[type=range] { height: 20px; margin: 0; }
+  /* The centre column is two rows (controls + seek bar, 64px). Pin the right-hand
+     buttons to the controls row so heart/download line up with prev/play/next. */
+  #mini .right { display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding-right: 14px;
+    align-self: start; height: 44px; margin-top: calc((var(--mini-h) - 64px) / 2); }
   #mini .right .volic { color: var(--muted); margin-left: 6px; }
   #mini .right input[type=range] { width: 96px; }
   #mini .ctl.mob, #mini .prog { display: none; }
@@ -348,6 +375,8 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
   #fp header { grid-column: 1 / -1; }
   #fp .stage { grid-column: 1; grid-row: 2; padding: 0; }
   #fp .cover { width: min(100%, 58dvh, 520px); }
+  #fp .stage { height: calc(100dvh - 130px); align-self: center; }
+  .lyr .ln { font-size: 30px; }
   #fp .panel { grid-column: 2; grid-row: 2; }
   #fp .titles .t { font-size: 30px; }
 }
@@ -361,6 +390,7 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
   #fp .cover { width: min(100%, 62dvh); border-radius: 18px; }
   #fp .panel { grid-column: 2; grid-row: 2; align-self: center; }
   #fp .titles .t { font-size: 20px; } #fp .foot { display: none; }
+  .lyr .ln { font-size: 20px; } .lyr { padding: 30% 4px; }
   #fp .controls .iconbtn { width: 44px; height: 44px; } #fp .bigplay { height: 52px; width: 72px; }
   :root { --nav-h: 56px; --mini-h: 60px; }
   #nav .pill { height: 26px; } #nav .lbl { display: none; }

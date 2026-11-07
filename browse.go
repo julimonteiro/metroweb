@@ -562,3 +562,52 @@ func TrackInfo(ctx context.Context, id string) (Track, error) {
 var playCountRe = regexp.MustCompile(`(?i)^[\d.,]+\s*[kmb]?\s*(plays|views|streams|reproduções|visualizações)$`)
 
 func isPlayCount(s string) bool { return playCountRe.MatchString(strings.TrimSpace(s)) }
+
+var videoFilter = "EgWKAQIQAWoKEAkQBRAKEAMQBA%3D%3D"
+
+// FindClip looks for the official music video of a song (YouTube Music marks
+// those MUSIC_VIDEO_TYPE_OMV) and returns its video id, or "" when there isn't
+// a confident match. Covers, live takes and fan uploads are ignored.
+func FindClip(ctx context.Context, title, artist string, durSec int) (string, error) {
+	artist = strings.TrimSpace(strings.Split(artist, ",")[0])
+	base := strings.TrimSpace(baseTitle(title))
+	if base == "" || artist == "" {
+		return "", nil
+	}
+	p, _ := url.QueryUnescape(videoFilter)
+	resp, err := innertube(ctx, webRemix, "search", map[string]any{"query": artist + " " + base, "params": p})
+	if err != nil {
+		return "", err
+	}
+	var rows []map[string]any
+	findAll(resp, "musicResponsiveListItemRenderer", &rows)
+	for _, it := range rows {
+		cols, _ := it["flexColumns"].([]any)
+		runs := runsOf(get(cols, 0, "musicResponsiveListItemFlexColumnRenderer", "text"))
+		if len(runs) == 0 || str(runs[0], "navigationEndpoint", "watchEndpoint", "watchEndpointMusicSupportedConfigs", "watchEndpointMusicConfig", "musicVideoType") != "MUSIC_VIDEO_TYPE_OMV" {
+			continue
+		}
+		x, ok := itemFromList(it)
+		if !ok || x.Type != "song" {
+			continue
+		}
+		if !strings.Contains(fold(x.Artist), fold(artist)) && !strings.Contains(fold(artist), fold(x.Artist)) {
+			continue
+		}
+		if fold(baseTitle(x.Title)) != fold(base) {
+			continue
+		}
+		if d := durationSeconds(x.Duration); durSec > 0 && x.Duration != "" && absInt(d-durSec) > 60 {
+			continue
+		}
+		return x.ID, nil
+	}
+	return "", nil
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}

@@ -75,10 +75,18 @@
   <div class="inner">
     <header>
       <button class="iconbtn" id="fpClose" aria-label="Close player"></button>
-      <div class="mid">Now playing</div>
+      <div class="seg" role="tablist" aria-label="Player view">
+        <button class="on" data-mode="song" role="tab" aria-selected="true">Song</button>
+        <button data-mode="lyrics" role="tab" aria-selected="false">Lyrics</button>
+        <button data-mode="video" role="tab" aria-selected="false">Video</button>
+      </div>
       <button class="iconbtn" id="fpMore" aria-label="More options"></button>
     </header>
-    <div class="stage"><img class="cover" id="fpImg" alt=""></div>
+    <div class="stage">
+      <img class="cover" id="fpImg" alt="">
+      <div class="lyr" id="lyr" hidden aria-live="off"></div>
+      <div class="vidbox" id="vidbox" hidden><video id="fpVid" muted playsinline></video><div class="vspin" id="vspin" hidden><div class="ring"></div><span>Loading video…</span></div></div>
+    </div>
     <div class="panel">
       <div class="titles">
         <div class="tt"><div class="t" id="fpT">—</div><button class="a link" id="fpA"></button></div>

@@ -12,6 +12,7 @@ A self-hosted YouTube Music web client, modelled on [Metrolist](https://github.c
 - Paste a YouTube / YouTube Music link into the search box to open that song, artist, album or playlist
 - **Knows what you already own**: with a Jellyfin URL and API key, songs that are already in your Jellyfin library get a green ✓ and are never downloaded twice (matching by title and artist, ignoring accents and "(Radio Edit)"-style suffixes)
 - Downloads land in `Artist/Album/Title.m4a` with tags and a square cover, are never duplicated, and trigger a Jellyfin library rescan if you configure it
+- **Lyrics and music video** in the full-screen player (Song · Lyrics · Video switch): time-synced lyrics that follow the song (tap a line to jump there) and the official music video, kept in sync with the player controls
 - **Stats**: your top artists, songs and albums, an artists-over-time chart, genre breakdown, month-by-month favourites, listening streak and the hours you listen most (last 30 days, 3 months, year or all time)
 - Installable as a PWA
 
@@ -46,6 +47,7 @@ go run . -library ~/Music/metroweb
 | `-user` / `-password` | `METROWEB_USER` / `METROWEB_PASSWORD` | **Initial** credentials, used on first run only (default `admin`/`admin`) |
 | `-data` | `METROWEB_DATA` | Data folder: credentials (hashed), playlists, session secret, stream cache |
 | `-genres` | `METROWEB_GENRES=0` | Turn off genre lookups for the Stats page (on by default) |
+| `-lyrics` | `METROWEB_LYRICS=0` | Turn off lyrics lookups (on by default) |
 | `-trust-proxy` | `METROWEB_TRUST_PROXY=1` | Trust `X-Forwarded-For` (behind a reverse proxy or tunnel) for login rate limiting |
 
 ## Security
@@ -113,6 +115,8 @@ All routes except `/login` and the PWA files require a session.
 | `POST /api/download/{id}` · `GET /api/downloads` | Queue a download / download states |
 | `GET/POST /api/playlists` · `GET/PATCH/DELETE /api/playlists/{id}` | Playlists (`liked` is the built-in Liked songs) |
 | `POST /api/playlists/{id}/tracks` · `DELETE /api/playlists/{id}/tracks/{trackId}` | Edit a playlist |
+| `GET /api/lyrics?title=&artist=&album=&duration=` | Time-synced (or plain) lyrics from LRCLIB |
+| `GET /api/clip/info?title=&artist=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
 | `GET/POST /api/account` | Current user / change username and password |
@@ -120,6 +124,10 @@ All routes except `/login` and the PWA files require a session.
 ## Stats and privacy
 
 A song counts as a play after 30 seconds of listening. The history is a plain file on your server (`<data>/plays.jsonl`); nothing is sent to analytics services. For the genre chart, the server asks [MusicBrainz](https://musicbrainz.org) for each artist's genres (only the artist *name* is sent, at most one request per second, results cached in `<data>/genres.json`). Start with `METROWEB_GENRES=0` to turn that off.
+
+## Lyrics and music videos
+
+Lyrics come from [LRCLIB](https://lrclib.net), a free open lyrics database; only the song title, artist, album and duration are sent (set `METROWEB_LYRICS=0` to disable). The music video is the official clip YouTube Music lists for the song (covers and fan uploads are ignored); the server downloads it once with `yt-dlp` (720p at most, H.264) into `<data>/cache`, which is capped at 3 GB, and only for ids the app looked up itself, so it cannot be used to fetch arbitrary videos.
 
 ## Shortcuts (desktop)
 

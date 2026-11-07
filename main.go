@@ -33,6 +33,7 @@ func main() {
 	dataDir := flag.String("data", envOr("METROWEB_DATA", filepath.Join(userConfigDir(home), "metroweb")), "server data folder (credentials, playlists, session secret)")
 	trustProxy := flag.Bool("trust-proxy", os.Getenv("METROWEB_TRUST_PROXY") == "1", "trust X-Forwarded-For (behind a reverse proxy/tunnel)")
 	genres := flag.Bool("genres", os.Getenv("METROWEB_GENRES") != "0", "look up artist genres on MusicBrainz for the stats page (sends artist names only)")
+	lyrics := flag.Bool("lyrics", os.Getenv("METROWEB_LYRICS") != "0", "look up synced lyrics on LRCLIB for the full-screen player (sends title/artist only)")
 	flag.Parse()
 
 	lib := NewLibrary(*libDir, *jfURL, *jfKey)
@@ -61,7 +62,7 @@ func main() {
 		go jf.Run()
 		lib.OnRescan = jf.Kick
 	}
-	registerAPI(mux, lib, playlists, stats, jf)
+	registerAPI(mux, lib, playlists, stats, jf, NewLyricsService(*lyrics))
 	mux.HandleFunc("/api/img", handleImg)
 
 	streamCacheDir = filepath.Join(*dataDir, "cache")

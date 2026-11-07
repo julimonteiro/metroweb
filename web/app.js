@@ -778,6 +778,7 @@ let counted = false;     // has the current listen been reported to the stats?
 function playAt(i) {
   if (i < 0 || i >= queue.length) return;
   idx = i; counted = false;
+  if (clip) { clip = null; resetVideoEl(); setMode('song', true); }
   const t = queue[i];
   audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
   audio.play().catch(e => console.warn(e));
@@ -789,6 +790,7 @@ function playAt(i) {
   }
   themeFrom(t.thumb);
   persist(); renderQueueList(); updateNow();
+  if (mode === 'lyrics') loadLyrics(t);
   if (idx >= queue.length - 2) topUpRadio();
 }
 function playList(items, i) { queue = items.map(T); idx = -1; playAt(i); }
@@ -899,7 +901,7 @@ function updateNow() {
   });
 }
 
-function openFp() { if (!cur()) return; $('#fp').classList.add('open'); $('#fp').setAttribute('aria-hidden', 'false'); }
+function openFp() { if (!cur()) return; $('#fp .seg [data-mode="video"]').classList.toggle('none', clipCache.get(cur().id) === ''); $('#fp').classList.add('open'); $('#fp').setAttribute('aria-hidden', 'false'); }
 function closeFp() { const f = $('#fp'); f.classList.remove('open'); f.style.transform = ''; f.setAttribute('aria-hidden', 'true'); }
 
 // ============================================================================
@@ -986,7 +988,7 @@ $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 // audio
 audio.addEventListener('play', updateNow); audio.addEventListener('pause', updateNow);
 audio.addEventListener('ended', () => { counted = false; next(true); });
-audio.addEventListener('error', () => { if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
+audio.addEventListener('error', () => { if (clip) { snack('The video could not be played'); exitVideo(); return; } if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
 let seeking = false;
 function paintBars() {
   const p = audio.duration ? audio.currentTime / audio.duration : 0;
@@ -996,7 +998,7 @@ function paintBars() {
   if (!seeking) for (const id of ['bar', 'dBar']) { const b = $('#' + id); b.value = p * 1000; b.style.setProperty('--p', (p * 100) + '%'); }
 }
 audio.addEventListener('timeupdate', () => {
-  paintBars();
+  paintBars(); syncLyrics(); syncVideo();
   maybeCountPlay();
   if ('mediaSession' in navigator && audio.duration && isFinite(audio.duration)) {
     try { navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate }); } catch {}
@@ -1017,6 +1019,118 @@ if ('mediaSession' in navigator) {
   navigator.mediaSession.setActionHandler('previoustrack', prev);
   try { navigator.mediaSession.setActionHandler('seekto', d => { audio.currentTime = d.seekTime; }); } catch {}
 }
+
+// ---------- full-screen player: Song / Lyrics / Video ----------
+let mode = 'song';                    // 'song' | 'lyrics' | 'video'
+let clip = null;                      // { videoId, trackId } while the music video is playing
+const lyricsCache = new Map(), clipCache = new Map();
+let lyr = { id: null, lines: [], active: -1, synced: false };
+let userScrollUntil = 0;
+
+function setMode(m, quiet) {
+  if (m === 'video' && mode !== 'video') { enterVideo(); return; }
+  if (mode === 'video' && m !== 'video') exitVideo(true);
+  mode = m;
+  const fp = $('#fp'); fp.dataset.mode = m;
+  $$('#fp .seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-selected', b.dataset.mode === m); });
+  $('#lyr').hidden = m !== 'lyrics'; $('#vidbox').hidden = m !== 'video';
+  if (m === 'lyrics' && cur()) loadLyrics(cur());
+}
+
+async function loadLyrics(t) {
+  const box = $('#lyr'); lyr = { id: t.id, lines: [], active: -1, synced: false };
+  box.innerHTML = '<div class="msg"><div style="width:30px;height:30px;border-radius:50%;border:4px solid var(--outline);border-top-color:var(--accent);animation:spin 1s linear infinite"></div></div>';
+  let r = lyricsCache.get(t.id);
+  if (!r) {
+    try {
+      const q = new URLSearchParams({ title: t.title, artist: t.artist || '', album: t.album || '', duration: t.duration || '' });
+      r = await api('/api/lyrics?' + q); if (r.found) lyricsCache.set(t.id, r);
+    } catch (e) {
+      if (cur() && cur().id === t.id) { box.innerHTML = '<div class="msg">Could not load lyrics.<button class="btn tonal" id="lyRetry">Try again</button></div>'; $('#lyRetry').onclick = () => loadLyrics(t); }
+      return;
+    }
+  }
+  if (!cur() || cur().id !== t.id || mode !== 'lyrics') return;
+  if (!r.enabled) { box.innerHTML = '<div class="msg">Lyrics are turned off on this server.</div>'; return; }
+  if (r.synced && r.synced.length) {
+    lyr.lines = r.synced; lyr.synced = true;
+    box.innerHTML = r.synced.map((l, i) => `<p class="ln" data-i="${i}">${esc(l.text) || '♪'}</p>`).join('');
+    syncLyrics(true);
+  } else if (r.plain) {
+    box.innerHTML = `<span class="tag">Not synced</span><div class="plain">${esc(r.plain)}</div>`;
+    box.scrollTop = 0;
+  } else if (r.instrumental) {
+    box.innerHTML = '<div class="msg">♪ Instrumental ♪</div>';
+  } else box.innerHTML = '<div class="msg">No lyrics found for this song.</div>';
+}
+// highlight the current line and keep it centred
+function syncLyrics(force) {
+  if (mode !== 'lyrics' || !lyr.synced || !lyr.lines.length) return;
+  const t = audio.currentTime + 0.25, L = lyr.lines;
+  let lo = 0, hi = L.length - 1, a = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (L[m].t <= t) { a = m; lo = m + 1; } else hi = m - 1; }
+  if (a === lyr.active && !force) return;
+  lyr.active = a;
+  const box = $('#lyr'), els = box.children;
+  for (let i = 0; i < els.length; i++) { els[i].classList.toggle('cur', i === a); els[i].classList.toggle('past', i < a); }
+  if (a >= 0 && Date.now() > userScrollUntil) {
+    const el = els[a]; box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: force ? 'auto' : 'smooth' });
+  }
+}
+$('#lyr').addEventListener('click', e => {
+  const ln = e.target.closest('.ln'); if (!ln || !lyr.lines[+ln.dataset.i]) return;
+  audio.currentTime = lyr.lines[+ln.dataset.i].t; userScrollUntil = 0; if (audio.paused) audio.play();
+});
+['wheel', 'touchmove'].forEach(ev => $('#lyr').addEventListener(ev, () => { userScrollUntil = Date.now() + 3500; }, { passive: true }));
+
+// ---- music video: the clip file plays through the audio element (so every
+// control keeps working) and a muted <video> shows the picture, slaved to it.
+async function clipFor(t) {
+  if (clipCache.has(t.id)) return clipCache.get(t.id);
+  const q = new URLSearchParams({ title: t.title, artist: t.artist || '', duration: t.duration || '' });
+  const r = await api('/api/clip/info?' + q); clipCache.set(t.id, r.videoId || ''); return r.videoId || '';
+}
+async function enterVideo() {
+  const t = cur(); if (!t) return;
+  const btn = $('#fp .seg [data-mode="video"]'); btn.disabled = true;
+  let vid = '';
+  try { vid = await clipFor(t); } catch (e) { snack('Could not look for the music video'); }
+  btn.disabled = false;
+  if (!cur() || cur().id !== t.id) return;
+  if (!vid) { btn.classList.add('none'); snack('No official music video found for this song'); return; }
+  mode = 'video'; clip = { videoId: vid, trackId: t.id };
+  $('#fp').dataset.mode = 'video'; $('#lyr').hidden = true; $('#vidbox').hidden = false;
+  $$('#fp .seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === 'video'); b.setAttribute('aria-selected', b.dataset.mode === 'video'); });
+  const url = `/api/clip/${vid}`, v = $('#fpVid');
+  $('#vspin').hidden = false;
+  v.src = url; v.load();
+  audio.src = url; audio.play().catch(() => {});
+}
+function resetVideoEl() { const v = $('#fpVid'); v.pause(); v.removeAttribute('src'); v.load(); $('#vspin').hidden = true; }
+// leave the clip; by default go back to the song at roughly the same position
+function exitVideo(restore = true) {
+  if (!clip) return;
+  const t = cur(), pos = audio.currentTime, was = !audio.paused;
+  clip = null; resetVideoEl();
+  if (mode === 'video') setMode('song', true);
+  if (restore && t) {
+    audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
+    audio.addEventListener('loadedmetadata', () => { try { audio.currentTime = Math.max(0, Math.min(pos, (audio.duration || pos) - 1)); } catch {} }, { once: true });
+    if (was) audio.play().catch(() => {});
+  }
+}
+function syncVideo() {
+  if (!clip) return;
+  const v = $('#fpVid');
+  if (v.readyState > 0 && Math.abs(v.currentTime - audio.currentTime) > 0.35) v.currentTime = audio.currentTime;
+  if (!audio.paused && v.paused) v.play().catch(() => {});
+}
+audio.addEventListener('pause', () => { if (clip) $('#fpVid').pause(); });
+audio.addEventListener('play', () => { if (clip) $('#fpVid').play().catch(() => {}); });
+audio.addEventListener('seeked', () => { if (clip) $('#fpVid').currentTime = audio.currentTime; });
+audio.addEventListener('waiting', () => { if (clip) $('#vspin').hidden = false; });
+audio.addEventListener('playing', () => { $('#vspin').hidden = true; });
+$$('#fp .seg button').forEach(b => b.addEventListener('click', () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); }));
 
 // ---------- Jellyfin awareness: mark songs you already own ----------
 let scanTimer = null;
