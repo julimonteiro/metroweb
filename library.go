@@ -27,6 +27,9 @@ type Library struct {
 	status map[string]string // id -> queued | running | done | error: ...
 	jobs   chan string
 	rescan *time.Timer
+
+	// OnRescan runs after Jellyfin accepted a library refresh (used to re-index).
+	OnRescan func()
 }
 
 func NewLibrary(dir, jfURL, jfKey string) *Library {
@@ -175,5 +178,8 @@ func (l *Library) scheduleRescan() {
 		}
 		resp.Body.Close()
 		log.Printf("jellyfin rescan: HTTP %d", resp.StatusCode)
+		if resp.StatusCode < 300 && l.OnRescan != nil {
+			l.OnRescan()
+		}
 	})
 }

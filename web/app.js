@@ -82,6 +82,9 @@ let liked = [];                                  // Track[] (oldest first)
 let likedIds = new Set();
 let playlists = [];                              // summaries, incl. "liked"
 let dls = {};                                    // id -> queued|running|done|error...
+let owned = new Set();                           // song ids already in the Jellyfin library
+const ownedChecked = new Set();
+let jfEnabled = false;
 let acc = { user: '', defaultCreds: false };
 let fetchingRadio = false;
 const cur = () => queue[idx];
@@ -99,12 +102,14 @@ function stateOf(id) {
   if (s === 'queued' || s === 'running') return 'busy';
   if (s === 'done') return 'done';
   if (s.startsWith('error')) return 'err';
+  if (owned.has(id)) return 'owned';
   return '';
 }
 function stIcon(id) {
   const s = stateOf(id);
   if (s === 'busy') return `<span class="st" title="Downloading…">${ic('clock')}</span>`;
-  if (s === 'done') return `<span class="st" title="In your library">${ic('check')}</span>`;
+  if (s === 'done') return `<span class="st" title="Downloaded to your library">${ic('check')}</span>`;
+  if (s === 'owned') return `<span class="st own" title="Already in your Jellyfin library">${ic('check')}</span>`;
   if (s === 'err') return `<span class="st err" title="${esc(dls[id])}">${ic('warn')}</span>`;
   return '';
 }
@@ -592,7 +597,7 @@ async function toggleLike(t) {
   updateNow();
   try {
     if (was) { await send('DELETE', `/api/playlists/liked/tracks/${t.id}`); snack('Removed from Liked songs'); }
-    else { await send('POST', '/api/playlists/liked/tracks', { tracks: [T(t)] }); snack('Liked — saving to your library'); download(t.id, true); }
+    else { await send('POST', '/api/playlists/liked/tracks', { tracks: [T(t)] }); snack(stateOf(t.id) === 'owned' ? 'Liked — already in your Jellyfin library' : 'Liked — saving to your library'); download(t.id, true); }
     refreshPlaylists();
     if (routeName === 'playlist' && V.playlistId === 'liked') route();
   } catch (e) {
@@ -654,20 +659,30 @@ async function pollDl() {
   dlTimer = dlBusy() ? setTimeout(pollDl, 2000) : null;
 }
 const knownTitle = id => (queue.find(t => t.id === id) || recent.find(t => t.id === id) || liked.find(t => t.id === id) || {}).title;
+function findTrack(id) {
+  const c = cur(); if (c && c.id === id) return c;
+  for (const L of Object.values(V.lists)) { const t = L.items.find(x => x.id === id); if (t) return t; }
+  return queue.find(t => t.id === id) || recent.find(t => t.id === id) || liked.find(t => t.id === id) || null;
+}
 async function download(id, quiet) {
-  const s = stateOf(id); if (s === 'busy' || s === 'done') return;
+  const s = stateOf(id);
+  if (s === 'owned') { if (!quiet) snack('Already in your Jellyfin library'); return; }
+  if (s === 'busy' || s === 'done') return;
   dls[id] = 'queued'; updateNow();
   try {
-    const d = await send('POST', '/api/download/' + encodeURIComponent(id));
+    const t = findTrack(id) || {};
+    const d = await send('POST', '/api/download/' + encodeURIComponent(id), { title: t.title || '', artist: t.artist || '' });
+    if (d.status === 'owned') { delete dls[id]; owned.add(id); ownedChecked.add(id); updateNow(); if (!quiet) snack('Already in your Jellyfin library, skipped'); return; }
     if (d.status) dls[id] = d.status;
     updateNow(); if (!quiet) snack('Downloading…');
     if (!dlTimer) dlTimer = setTimeout(pollDl, 1500);
   } catch (e) { delete dls[id]; updateNow(); snack(e.message); }
 }
 function downloadAll(tracks) {
-  const todo = tracks.filter(t => stateOf(t.id) !== 'done' && stateOf(t.id) !== 'busy');
+  const todo = tracks.filter(t => !['done', 'busy', 'owned'].includes(stateOf(t.id)));
   todo.forEach(t => download(t.id, true));
-  snack(todo.length ? `Downloading ${todo.length} song${todo.length === 1 ? '' : 's'}…` : 'Everything is already in your library');
+  const skipped = tracks.filter(t => stateOf(t.id) === 'owned').length;
+  snack(todo.length ? `Downloading ${todo.length} song${todo.length === 1 ? '' : 's'}…${skipped ? ` (${skipped} already in Jellyfin)` : ''}` : 'Everything is already in your library');
 }
 
 const ytURL = (kind, id) => kind === 'track' ? `https://music.youtube.com/watch?v=${id}`
@@ -700,7 +715,7 @@ function trackMenu(t, ctx = {}) {
     ${act('queue', 'addq', 'Add to queue')}
     ${act('like', liked_ ? 'heart' : 'heart0', liked_ ? 'Remove from Liked songs' : 'Like', 'accent')}
     ${act('pl', 'lib', 'Add to playlist')}
-    ${act('dl', st === 'done' ? 'check' : 'dl', st === 'done' ? 'In your library' : st === 'busy' ? 'Downloading…' : 'Download to library')}
+    ${act('dl', st === 'done' || st === 'owned' ? 'check' : 'dl', st === 'done' ? 'Downloaded to your library' : st === 'owned' ? 'Already in your Jellyfin library' : st === 'busy' ? 'Downloading…' : 'Download to library')}
     ${t.artistId ? act('artist', 'user', 'Go to artist') : ''}
     ${t.albumId ? act('album', 'album', 'Go to album') : ''}
     ${act('share', 'share', 'Share link')}
@@ -866,10 +881,11 @@ function updateNow() {
   const fav = t && likedIds.has(t.id);
   for (const sel of ['#fpFav', '#dFav']) { $(sel).innerHTML = ic(fav ? 'heart' : 'heart0'); $(sel).style.color = fav ? 'var(--accent)' : ''; $(sel).setAttribute('aria-label', fav ? 'Unlike' : 'Like'); }
   const st = t ? stateOf(t.id) : '';
-  const dlIcon = st === 'done' ? 'check' : st === 'busy' ? 'clock' : st === 'err' ? 'warn' : 'dl';
-  const lbl = st === 'done' ? 'In library' : st === 'busy' ? 'Downloading…' : st === 'err' ? 'Retry' : 'Download';
-  $('#fpDl').innerHTML = ic(dlIcon, 20) + lbl; $('#fpDl').className = st === 'done' ? 'done' : '';
-  $('#dDl').innerHTML = ic(dlIcon); $('#dDl').style.color = st === 'done' ? 'var(--ok)' : st === 'err' ? 'var(--err)' : '';
+  const have = st === 'done' || st === 'owned';
+  const dlIcon = have ? 'check' : st === 'busy' ? 'clock' : st === 'err' ? 'warn' : 'dl';
+  const lbl = st === 'owned' ? 'In Jellyfin' : st === 'done' ? 'In library' : st === 'busy' ? 'Downloading…' : st === 'err' ? 'Retry' : 'Download';
+  $('#fpDl').innerHTML = ic(dlIcon, 20) + lbl; $('#fpDl').className = have ? 'done' : '';
+  $('#dDl').innerHTML = ic(dlIcon); $('#dDl').style.color = have ? 'var(--ok)' : st === 'err' ? 'var(--err)' : '';
   for (const sel of ['#shuf', '#dShuf']) { $(sel).innerHTML = ic('shuf'); $(sel).classList.toggle('on', shuffle); $(sel).style.color = shuffle ? 'var(--accent)' : ''; }
   for (const sel of ['#rep', '#dRep']) { $(sel).innerHTML = ic(repeat === 2 ? 'rep1' : 'rep'); $(sel).classList.toggle('on', repeat > 0); $(sel).style.color = repeat ? 'var(--accent)' : ''; }
   // rows in the current view
@@ -1002,6 +1018,29 @@ if ('mediaSession' in navigator) {
   try { navigator.mediaSession.setActionHandler('seekto', d => { audio.currentTime = d.seekTime; }); } catch {}
 }
 
+// ---------- Jellyfin awareness: mark songs you already own ----------
+let scanTimer = null;
+function scheduleOwnedScan() { if (jfEnabled) { clearTimeout(scanTimer); scanTimer = setTimeout(scanOwned, 350); } }
+async function scanOwned() {
+  if (!jfEnabled) return;
+  const want = new Map();
+  const add = t => { if (t && t.id && t.title && !ownedChecked.has(t.id) && /^[\w-]{11}$/.test(t.id) && (t.type === undefined || t.type === 'song')) want.set(t.id, t); };
+  Object.values(V.lists).forEach(L => L.items.forEach(add)); add(cur());
+  const batch = [...want.values()].slice(0, 400);
+  if (!batch.length) return;
+  batch.forEach(t => ownedChecked.add(t.id));
+  try {
+    const r = await send('POST', '/api/library/check', { tracks: batch.map(t => ({ id: t.id, title: t.title, artist: t.artist || '' })) });
+    r.owned.forEach(id => owned.add(id));
+    if (r.owned.length) updateNow();
+  } catch { batch.forEach(t => ownedChecked.delete(t.id)); }
+  if (want.size > batch.length) scheduleOwnedScan();
+}
+async function loadJellyfin() {
+  try { jfEnabled = !!(await api('/api/library/status')).enabled; } catch { jfEnabled = false; }
+  if (jfEnabled) { new MutationObserver(scheduleOwnedScan).observe($('#view'), { childList: true, subtree: true }); scheduleOwnedScan(); }
+}
+
 // ============================================================================
 // Boot
 // ============================================================================
@@ -1029,7 +1068,7 @@ async function migrateLocalFavs() {
   paintStatic(); updateNow();
   api('/api/account').then(a => { acc = a; paintAccount(); }).catch(() => {});
   await migrateLocalFavs();
-  await Promise.all([loadLiked(), refreshPlaylists()]);
+  await Promise.all([loadLiked(), refreshPlaylists(), loadJellyfin()]);
   pollDl();
   if (cur()) themeFrom(cur().thumb);
   route(); updateNow();

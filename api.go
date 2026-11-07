@@ -32,7 +32,7 @@ func call[T any](w http.ResponseWriter, r *http.Request, what string, fn func(ct
 	writeJSON(w, 200, v)
 }
 
-func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore) {
+func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore, jf *JellyfinIndex) {
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		if q == "" || len(q) > 200 {
@@ -117,10 +117,25 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 	})
 
 	// --- downloads ---
+	// POST /api/download/{id} with an optional body {"title","artist","force"}.
+	// If the song is already in the Jellyfin library it is not downloaded again
+	// (unless force is set) and the answer is {"status":"owned"}.
 	mux.HandleFunc("/api/download/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/api/download/")
 		if r.Method != "POST" || !idRe.MatchString(id) {
 			apiErr(w, 400, "POST /api/download/{id}")
+			return
+		}
+		var in struct {
+			Title  string `json:"title"`
+			Artist string `json:"artist"`
+			Force  bool   `json:"force"`
+		}
+		if r.ContentLength != 0 {
+			json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in)
+		}
+		if !in.Force && jf.Has(in.Title, in.Artist) {
+			writeJSON(w, 200, map[string]string{"status": "owned"})
 			return
 		}
 		if err := lib.Check(); err != nil {
@@ -131,6 +146,32 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 	})
 	mux.HandleFunc("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, lib.Status())
+	})
+
+	// --- Jellyfin library awareness ---
+	mux.HandleFunc("/api/library/status", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, jf.Status())
+	})
+	// POST {"tracks":[{"id","title","artist"}]} -> {"owned":[ids]}
+	mux.HandleFunc("/api/library/check", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			apiErr(w, 405, "method not allowed")
+			return
+		}
+		var in struct {
+			Tracks []Track `json:"tracks"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10)).Decode(&in) != nil || len(in.Tracks) > 500 {
+			apiErr(w, 400, "invalid request")
+			return
+		}
+		owned := []string{}
+		for _, t := range in.Tracks {
+			if idRe.MatchString(t.ID) && jf.Has(t.Title, t.Artist) {
+				owned = append(owned, t.ID)
+			}
+		}
+		writeJSON(w, 200, map[string]any{"enabled": jf != nil, "owned": owned})
 	})
 
 	// --- listening stats ---

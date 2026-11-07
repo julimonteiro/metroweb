@@ -56,7 +56,12 @@ func main() {
 	if serr != nil {
 		log.Fatal(serr)
 	}
-	registerAPI(mux, lib, playlists, stats)
+	jf := NewJellyfinIndex(*jfURL, *jfKey)
+	if jf != nil {
+		go jf.Run()
+		lib.OnRescan = jf.Kick
+	}
+	registerAPI(mux, lib, playlists, stats, jf)
 	mux.HandleFunc("/api/img", handleImg)
 
 	streamCacheDir = filepath.Join(*dataDir, "cache")

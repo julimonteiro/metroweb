@@ -10,6 +10,7 @@ A self-hosted YouTube Music web client, modelled on [Metrolist](https://github.c
 - **Playlists** and **Liked songs**, stored on the server so they follow you across devices
 - ♥ likes a song **and** downloads it to your library; the ⋮ menu has radio, play next, queue, add to playlist, download, go to artist/album and **share link**
 - Paste a YouTube / YouTube Music link into the search box to open that song, artist, album or playlist
+- **Knows what you already own**: with a Jellyfin URL and API key, songs that are already in your Jellyfin library get a green ✓ and are never downloaded twice (matching by title and artist, ignoring accents and "(Radio Edit)"-style suffixes)
 - Downloads land in `Artist/Album/Title.m4a` with tags and a square cover, are never duplicated, and trigger a Jellyfin library rescan if you configure it
 - **Stats**: your top artists, songs and albums, an artists-over-time chart, genre breakdown, month-by-month favourites, listening streak and the hours you listen most (last 30 days, 3 months, year or all time)
 - Installable as a PWA
@@ -60,6 +61,15 @@ metroweb is meant to be reachable from the internet, so it is locked down by def
 - **Listens on `127.0.0.1` by default.** Expose it only through HTTPS or a private network. The Docker setup publishes `127.0.0.1:8787` only, runs as a non-root user with a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and write access only to `/music`, `/data` and `/tmp`. Prefer Docker over running the binary directly: that way a bug in a downloader could at worst touch your music folder.
 
 Still your job: keep `yt-dlp` and the image updated, use a strong unique password, and keep HTTPS in front of it.
+
+## Jellyfin integration
+
+Set `JELLYFIN_URL` and `JELLYFIN_API_KEY` (Jellyfin: Dashboard > Advanced > API Keys > +). metroweb then:
+
+- reads the list of song titles and artists in your library (nothing else) every 10 minutes and marks songs you already have, skipping duplicate downloads;
+- asks Jellyfin to rescan after it downloads something, and refreshes its own index afterwards.
+
+Jellyfin API keys have admin rights, so keep the key in a private `.env` file (never in git) and only on the server that runs metroweb.
 
 ## Reaching it from outside your home
 

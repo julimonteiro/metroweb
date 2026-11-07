@@ -74,6 +74,7 @@ h2.sec small { font-size: 13px; font-weight: 500; color: var(--accent); cursor: 
 .a .st { display: inline-flex; color: var(--accent); flex: none; }
 .a .st svg { width: 15px; height: 15px; }
 .a .st.err { color: var(--err); }
+.a .st.own { color: var(--ok); }
 .a > span { overflow: hidden; text-overflow: ellipsis; }
 button.a.link { display: block; text-align: left; max-width: 100%; }
 button.a.link:hover { text-decoration: underline; color: var(--on); }
