@@ -590,8 +590,8 @@ async function accountSheet() {
   openSheet(`<h3>Account</h3><div class="sub">Signed in as <b>${esc(acc.user)}</b>${acc.defaultCreds ? ' — still using the default password' : ''}</div>
     <form id="accForm" autocomplete="off">
       <input type="password" name="current" placeholder="Current password" autocomplete="current-password" required>
-      <input type="text" name="user" placeholder="New username (optional)" value="${esc(acc.user)}" autocapitalize="none" spellcheck="false">
-      <input type="password" name="password" placeholder="New password (min. 8 characters)" autocomplete="new-password" minlength="8" required>
+      <input type="text" name="user" placeholder="Username" value="${esc(acc.user)}" maxlength="64" autocapitalize="none" spellcheck="false" aria-label="Username" required>
+      <input type="password" name="password" placeholder="New password (leave empty to keep it)" autocomplete="new-password" minlength="8" aria-label="New password">
       <div class="msg" id="accMsg"></div>
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
     </form>`);

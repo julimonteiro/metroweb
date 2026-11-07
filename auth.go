@@ -106,6 +106,20 @@ func (a *Auth) setCreds(user, pass string) error {
 	return nil
 }
 
+// setUser renames the account without touching the password hash.
+func (a *Auth) setUser(user string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.c
+	c.User = user
+	b, _ := json.Marshal(c)
+	if err := os.WriteFile(filepath.Join(a.dir, "credentials.json"), b, 0o600); err != nil {
+		return err
+	}
+	a.c = c
+	return nil
+}
+
 func loadSecret(dir string) ([]byte, error) {
 	path := filepath.Join(dir, "session-secret")
 	if b, err := os.ReadFile(path); err == nil {
@@ -277,6 +291,19 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 		user := strings.TrimSpace(in.User)
 		if user == "" {
 			user = a.snapshot().User
+		}
+		if len(user) > 64 {
+			writeJSON(w, 400, map[string]string{"error": "The username must be at most 64 characters."})
+			return
+		}
+		if in.Password == "" {
+			// Username-only change: keep the current password (and sessions).
+			if err := a.setUser(user); err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"user": user, "defaultCreds": a.snapshot().Default})
+			return
 		}
 		if len(in.Password) < 8 {
 			writeJSON(w, 400, map[string]string{"error": "The new password must be at least 8 characters."})

@@ -86,3 +86,20 @@ func TestAuthLockout(t *testing.T) {
 		t.Fatal("lockout should apply per IP after repeated failures")
 	}
 }
+
+func TestRenameKeepsPasswordAndSession(t *testing.T) {
+	a := newTestAuth(t)
+	if err := a.setUser("julio"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.check("julio", "admin") || a.check("admin", "admin") {
+		t.Fatal("rename must change the username and keep the password")
+	}
+	if !a.snapshot().Default {
+		t.Fatal("password is still the default, so the warning must stay")
+	}
+	b, err := NewAuth(a.dir, "", "", false, nil) // reload from disk
+	if err != nil || !b.check("julio", "admin") {
+		t.Fatalf("rename not persisted: %v", err)
+	}
+}
