@@ -64,3 +64,29 @@ func TestSanitizeTrackRejectsHostileInput(t *testing.T) {
 		t.Fatalf("title must be clipped, got %d", len(got.Title))
 	}
 }
+
+func TestAutoLikeRespectsUnlikes(t *testing.T) {
+	s, _ := NewPlaylistStore(t.TempDir())
+	a := Track{ID: "aaaaaaaaaaa", Title: "A", Artist: "X"}
+	b := Track{ID: "bbbbbbbbbbb", Title: "B", Artist: "X"}
+	if got := s.AutoLike([]Track{a, b, {ID: "bad", Title: "no"}}); len(got) != 2 {
+		t.Fatalf("auto-liked %v", got)
+	}
+	if got := s.AutoLike([]Track{a}); len(got) != 0 {
+		t.Fatalf("already liked songs must not be added twice: %v", got)
+	}
+	// the user un-likes A: it must stay un-liked, even across a restart
+	s.RemoveTrack(likedID, a.ID)
+	s.Suppress(a.ID)
+	if got := s.AutoLike([]Track{a}); len(got) != 0 {
+		t.Fatalf("an un-liked song came back: %v", got)
+	}
+	s2, _ := NewPlaylistStore(s.path[:len(s.path)-len("playlists.json")])
+	if !s2.IsSuppressed(a.ID) || len(s2.AutoLike([]Track{a})) != 0 {
+		t.Fatal("suppression must survive a restart")
+	}
+	// liking it again by hand clears the suppression
+	if n, _ := s2.AddTracks(likedID, []Track{a}); n != 1 || s2.IsSuppressed(a.ID) {
+		t.Fatal("a deliberate like must override the earlier un-like")
+	}
+}

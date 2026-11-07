@@ -69,7 +69,9 @@ Still your job: keep `yt-dlp` and the image updated, use a strong unique passwor
 
 Set `JELLYFIN_URL` and `JELLYFIN_API_KEY` (Jellyfin: Dashboard > Advanced > API Keys > +). metroweb then:
 
-- reads the list of song titles and artists in your library (nothing else) every 10 minutes and marks songs you already have, skipping duplicate downloads;
+- reads the list of songs in your library (titles, artists, durations and item ids; nothing else) every 10 minutes and marks songs you already have, skipping duplicate downloads;
+- **plays songs you already have straight from your Jellyfin library**, so they start instantly instead of waiting for YouTube (the API key stays on the server; if a file can't be played it falls back to YouTube);
+- treats every song it recognises as yours as **liked** (un-liking one is remembered and respected);
 - asks Jellyfin to rescan after it downloads something, and refreshes its own index afterwards;
 - once a week (and shortly after the first start) matches every Jellyfin song to its YouTube Music version and adds it to Liked songs; the state is kept in `<data>/import-state.json`.
 
@@ -113,7 +115,8 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/album/{id}` | Album with tracks |
 | `GET /api/radio/{videoId}` · `GET /api/mix?id=&p=&v=` | Song radio / artist or playlist mix |
 | `GET /api/track/{videoId}` | Resolve one song (used for pasted links) |
-| `GET /api/stream/{id}?fmt=opus\|aac` | Audio proxy with Range support |
+| `GET /api/stream/{id}?fmt=opus\|aac&t=&a=` | Audio with Range support: from Jellyfin when the song is in your library (`t`/`a` = title/artist), otherwise from YouTube |
+| `GET /api/prefetch/{id}` | Warm up the next song of the queue so it starts without a gap |
 | `POST /api/download/{id}` · `GET /api/downloads` | Queue a download / download states |
 | `GET/POST /api/playlists` · `GET/PATCH/DELETE /api/playlists/{id}` | Playlists (`liked` is the built-in Liked songs) |
 | `POST /api/playlists/{id}/tracks` · `DELETE /api/playlists/{id}/tracks/{trackId}` | Edit a playlist |

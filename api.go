@@ -149,6 +149,8 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 		writeJSON(w, 200, lib.Status())
 	})
 
+	mux.HandleFunc("/api/prefetch/", prefetchHandler)
+
 	// --- lyrics and music videos (full-screen player only) ---
 	mux.HandleFunc("/api/lyrics", lyricsHandler(ly))
 	mux.HandleFunc("/api/clip/info", func(w http.ResponseWriter, r *http.Request) {
@@ -228,12 +230,19 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 			return
 		}
 		owned := []string{}
+		var ownedTracks []Track
 		for _, t := range in.Tracks {
 			if idRe.MatchString(t.ID) && jf.Has(t.Title, t.Artist) {
 				owned = append(owned, t.ID)
+				ownedTracks = append(ownedTracks, t)
 			}
 		}
-		writeJSON(w, 200, map[string]any{"enabled": jf != nil, "owned": owned})
+		// Songs that are in the Jellyfin library count as liked, automatically.
+		liked := pls.AutoLike(ownedTracks)
+		if liked == nil {
+			liked = []string{}
+		}
+		writeJSON(w, 200, map[string]any{"enabled": jf != nil, "owned": owned, "liked": liked})
 	})
 
 	// --- listening stats ---
@@ -350,6 +359,9 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 			if err := pls.RemoveTrack(id, parts[2]); err != nil {
 				apiErr(w, 404, err.Error())
 				return
+			}
+			if id == likedID {
+				pls.Suppress(parts[2]) // an un-like is respected by automatic liking
 			}
 			writeJSON(w, 200, map[string]string{"ok": "1"})
 		default:

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,79 @@ func TestJellyfinDisabledWithoutConfig(t *testing.T) {
 	var j *JellyfinIndex = NewJellyfinIndex("", "")
 	if j != nil || j.Has("a", "b") || j.Status().Enabled {
 		t.Fatal("no URL/key must mean disabled, and never claim ownership")
+	}
+}
+
+func TestJellyfinFindAndStream(t *testing.T) {
+	const fileBody = "0123456789abcdefghij"
+	var gotAuth, gotRange string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/Items":
+			json.NewEncoder(w).Encode(map[string]any{"TotalRecordCount": 2, "Items": []map[string]any{
+				{"Id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Name": "One More Time", "Artists": []string{"Daft Punk"}},
+				{"Id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Name": "Starboy", "Artists": []string{"The Weeknd", "Daft Punk"}},
+			}})
+		case r.URL.Path == "/Audio/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/stream" && r.URL.Query().Get("static") == "true":
+			gotAuth, gotRange = r.Header.Get("Authorization"), r.Header.Get("Range")
+			w.Header().Set("Content-Type", "audio/flac")
+			w.Header().Set("Accept-Ranges", "bytes")
+			if gotRange == "bytes=5-9" {
+				w.Header().Set("Content-Range", "bytes 5-9/20")
+				w.WriteHeader(http.StatusPartialContent)
+				w.Write([]byte(fileBody[5:10]))
+				return
+			}
+			w.Write([]byte(fileBody))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	j := NewJellyfinIndex(srv.URL, "secret-key")
+	if err := j.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := j.Find("One More Time (Radio Edit)", "Daft Punk, Romanthony"); !ok || id != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("Find: %q %v", id, ok)
+	}
+	if _, ok := j.Find("One More Time", "Someone Else"); ok {
+		t.Fatal("a different artist must not match")
+	}
+	if _, ok := j.Find("", "Daft Punk"); ok {
+		t.Fatal("empty title must not match")
+	}
+
+	// whole file
+	rec := httptest.NewRecorder()
+	if !j.Stream(rec, httptest.NewRequest("GET", "/x", nil), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") || rec.Body.String() != fileBody || rec.Header().Get("Content-Type") != "audio/flac" {
+		t.Fatalf("stream: %d %q", rec.Code, rec.Body.String())
+	}
+	if gotAuth != `MediaBrowser Token="secret-key"` {
+		t.Fatalf("the API key must be sent to Jellyfin from the server: %q", gotAuth)
+	}
+	if rec.Header().Get("Authorization") != "" || strings.Contains(rec.Body.String(), "secret-key") {
+		t.Fatal("the API key must never reach the client")
+	}
+	// Range (seek)
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.Header.Set("Range", "bytes=5-9")
+	if !j.Stream(rec, req, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") || rec.Code != 206 || rec.Body.String() != "56789" || rec.Header().Get("Content-Range") != "bytes 5-9/20" {
+		t.Fatalf("range: %d %q %q", rec.Code, rec.Body.String(), rec.Header().Get("Content-Range"))
+	}
+	// missing item: nothing written so the caller can fall back to YouTube
+	rec = httptest.NewRecorder()
+	if j.Stream(rec, httptest.NewRequest("GET", "/x", nil), "cccccccccccccccccccccccccccccccc") || rec.Body.Len() != 0 {
+		t.Fatal("an unavailable item must report false and write nothing")
+	}
+
+	// end to end through the stream handler: no YouTube involved
+	streamJF = j
+	defer func() { streamJF = nil }()
+	rec = httptest.NewRecorder()
+	handleStream(rec, httptest.NewRequest("GET", "/api/stream/wU26xVT_vBU?fmt=opus&t=One+More+Time+%28Radio+Edit%29&a=Daft+Punk", nil))
+	if rec.Code != 200 || rec.Body.String() != fileBody {
+		t.Fatalf("handleStream should play the Jellyfin file: %d %q", rec.Code, rec.Body.String())
 	}
 }

@@ -800,8 +800,9 @@ function playAt(i) {
   idx = i; counted = false;
   if (mode === 'video') { stopVideo(); setTimeout(() => { if (mode === 'video') enterVideo(); }, 0); }
   const t = queue[i];
-  audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
+  audio.src = streamURL(t);
   audio.play().catch(e => console.warn(e));
+  setTimeout(prefetchNext, 1500);
   document.title = `${t.title} · metroweb`;
   recent = [T(t), ...recent.filter(x => x.id !== t.id)].slice(0, 40); store.set('mw.history', recent);
   if ('mediaSession' in navigator) {
@@ -812,6 +813,13 @@ function playAt(i) {
   persist(); renderQueueList(); updateNow();
   if (mode === 'lyrics') loadLyrics(t);
   if (idx >= queue.length - 2) topUpRadio();
+}
+// Title and artist let the server play the song straight from your Jellyfin library when it is there.
+const streamURL = (t, extra = '') => `/api/stream/${t.id}?fmt=${fmt}&t=${encodeURIComponent(t.title || '')}&a=${encodeURIComponent(t.artist || '')}${extra}`;
+// warm up the next song so it starts without a gap
+function prefetchNext() {
+  const n = queue[idx + 1]; if (!n || shuffle) return;
+  fetch(`/api/prefetch/${n.id}?fmt=${fmt}&t=${encodeURIComponent(n.title || '')}&a=${encodeURIComponent(n.artist || '')}`).catch(() => {});
 }
 function playList(items, i) { queue = items.map(T); idx = -1; playAt(i); }
 function playNow(t) { queue.splice(idx + 1, 0, T(t)); playAt(idx + 1); }
@@ -1008,7 +1016,10 @@ $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 // audio
 audio.addEventListener('play', updateNow); audio.addEventListener('pause', updateNow);
 audio.addEventListener('ended', () => { counted = false; next(true); });
-audio.addEventListener('error', () => { if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
+audio.addEventListener('error', () => {
+  if (!audio.src) return;
+  // a file from Jellyfin the browser can't play: retry once through YouTube
+  if (audio.src.includes('/api/stream/') && !audio.src.includes('nojf=1')) { audio.src += '&nojf=1'; audio.play().catch(() => {}); return; } snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
 let seeking = false;
 function paintBars() {
   const p = audio.duration ? audio.currentTime / audio.duration : 0;
@@ -1177,8 +1188,13 @@ async function scanOwned() {
   if (!batch.length) return;
   batch.forEach(t => ownedChecked.add(t.id));
   try {
-    const r = await send('POST', '/api/library/check', { tracks: batch.map(t => ({ id: t.id, title: t.title, artist: t.artist || '' })) });
+    const r = await send('POST', '/api/library/check', { tracks: batch.map(T) });
     r.owned.forEach(id => owned.add(id));
+    // songs that are in your Jellyfin library count as liked: the server liked the new ones
+    if (r.liked && r.liked.length) {
+      r.liked.forEach(id => { likedIds.add(id); const t = batch.find(x => x.id === id); if (t && !liked.some(x => x.id === id)) liked.push(T(t)); });
+      refreshPlaylists();
+    }
     if (r.owned.length) updateNow();
   } catch { batch.forEach(t => ownedChecked.delete(t.id)); }
   if (want.size > batch.length) scheduleOwnedScan();

@@ -161,7 +161,7 @@ func (im *Importer) run(songs []JfSong) {
 	var pending []Track
 	flush := func() {
 		if len(pending) > 0 {
-			im.pls.AddTracks(likedID, pending)
+			im.pls.AutoLike(pending)
 			pending = nil
 		}
 	}
@@ -189,7 +189,7 @@ func (im *Importer) run(songs []JfSong) {
 					if len(im.st.Missing) < 100 {
 						im.st.Missing = append(im.st.Missing, s.Artists[0]+" - "+s.Title)
 					}
-				case have[found.ID]:
+				case have[found.ID] || im.pls.IsSuppressed(found.ID):
 					im.seen[songKey(s)] = seenEntry{ID: found.ID, At: time.Now().Unix()}
 					im.st.Already++
 				default:

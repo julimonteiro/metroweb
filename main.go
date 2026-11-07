@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,6 +59,7 @@ func main() {
 		log.Fatal(serr)
 	}
 	jf := NewJellyfinIndex(*jfURL, *jfKey)
+	streamJF = jf
 	if jf != nil {
 		go jf.Run()
 		lib.OnRescan = jf.Kick
@@ -97,8 +99,17 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	if pref != "aac" {
 		pref = "opus"
 	}
+	q := r.URL.Query()
 
-	if _, bad := directFails.Load(id + "|" + pref); bad || (streamCacheDir != "" && cachedFile(id, pref) != "") {
+	// A song you already have in Jellyfin plays straight from your own library:
+	// no YouTube round trip, so it starts instantly.
+	if q.Get("nojf") != "1" && len(q.Get("t")) <= 200 && len(q.Get("a")) <= 200 {
+		if jid, ok := streamJF.Find(q.Get("t"), q.Get("a")); ok && streamJF.Stream(w, r, jid) {
+			return
+		}
+	}
+
+	if _, bad := directFails.Load(id + "|" + pref); bad || directBroken() || (streamCacheDir != "" && cachedFile(id, pref) != "") {
 		serveFromCache(w, r, id, pref)
 		return
 	}
@@ -133,6 +144,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		defer resp.Body.Close()
+		directStreak.Store(0) // direct proxying works on this network
 		for _, h := range []string{"Content-Length", "Content-Range", "Accept-Ranges"} {
 			if v := resp.Header.Get(h); v != "" {
 				w.Header().Set(h, v)
@@ -148,7 +160,24 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	// own downloader, e.g. TLS-fingerprint checks). Let yt-dlp fetch the file into
 	// a local cache and serve that, with full Range support.
 	directFails.Store(id+"|"+pref, true)
+	if directStreak.Add(1) >= 2 {
+		directSkipUntil.Store(time.Now().Add(10 * time.Minute).UnixNano()) // stop wasting ~6 s per song on a path that fails here
+	}
 	serveFromCache(w, r, id, pref)
+}
+
+// streamJF serves songs from the Jellyfin library when they are in it (nil = off).
+var streamJF *JellyfinIndex
+
+// When direct proxying fails for two songs in a row (YouTube rejects the URLs
+// from this network), skip it for a while and go straight to the cached download.
+var (
+	directStreak    atomic.Int32
+	directSkipUntil atomic.Int64
+)
+
+func directBroken() bool {
+	return directStreak.Load() >= 2 && time.Now().UnixNano() < directSkipUntil.Load()
 }
 
 // directFails remembers tracks whose googlevideo URL can't be proxied directly.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -21,7 +22,8 @@ type JellyfinIndex struct {
 	client    *http.Client
 
 	mu      sync.RWMutex
-	byTitle map[string]map[string]bool // folded title -> set of folded artists
+	byTitle map[string]map[string]bool   // folded title -> set of folded artists
+	idByKey map[string]map[string]string // folded title -> folded artist -> Jellyfin item id
 	songs   []JfSong
 	count   int
 	updated time.Time
@@ -74,6 +76,7 @@ func (j *JellyfinIndex) Kick() {
 
 // JfSong is one song of the Jellyfin library.
 type JfSong struct {
+	ID      string
 	Title   string
 	Artists []string // performers, album artist last
 	Album   string
@@ -82,6 +85,7 @@ type JfSong struct {
 
 type jfPage struct {
 	Items []struct {
+		ID           string   `json:"Id"`
 		Name         string   `json:"Name"`
 		Artists      []string `json:"Artists"`
 		AlbumArtist  string   `json:"AlbumArtist"`
@@ -93,6 +97,7 @@ type jfPage struct {
 
 func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 	idx := map[string]map[string]bool{}
+	ids := map[string]map[string]string{}
 	var songs []JfSong
 	count := 0
 	for start := 0; ; {
@@ -123,9 +128,13 @@ func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 			for _, k := range titleKeys(it.Name) {
 				if idx[k] == nil {
 					idx[k] = map[string]bool{}
+					ids[k] = map[string]string{}
 				}
 				for a := range artists {
 					idx[k][a] = true
+					if ids[k][a] == "" && it.ID != "" {
+						ids[k][a] = it.ID
+					}
 				}
 			}
 			count++
@@ -134,7 +143,7 @@ func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 				perf = []string{it.AlbumArtist}
 			}
 			if it.Name != "" && len(perf) > 0 {
-				songs = append(songs, JfSong{Title: it.Name, Artists: perf, Album: it.Album, Seconds: int(it.RunTimeTicks / 10_000_000)})
+				songs = append(songs, JfSong{ID: it.ID, Title: it.Name, Artists: perf, Album: it.Album, Seconds: int(it.RunTimeTicks / 10_000_000)})
 			}
 		}
 		start += len(page.Items)
@@ -143,7 +152,7 @@ func (j *JellyfinIndex) Refresh(ctx context.Context) error {
 		}
 	}
 	j.mu.Lock()
-	j.byTitle, j.songs, j.count, j.updated = idx, songs, count, time.Now()
+	j.byTitle, j.idByKey, j.songs, j.count, j.updated = idx, ids, songs, count, time.Now()
 	j.mu.Unlock()
 	log.Printf("jellyfin index: %d songs", count)
 	return nil
@@ -279,4 +288,57 @@ func (j *JellyfinIndex) Songs() []JfSong {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	return append([]JfSong(nil), j.songs...)
+}
+
+// Find returns the Jellyfin item id of a song with this title by one of these
+// artists (same matching rules as Has), so it can be played straight from the
+// local library instead of being fetched from YouTube.
+func (j *JellyfinIndex) Find(title, artist string) (string, bool) {
+	if j == nil || title == "" || artist == "" {
+		return "", false
+	}
+	var want []string
+	for _, a := range splitArtists(artist) {
+		if f := fold(a); f != "" {
+			want = append(want, f)
+		}
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	for _, k := range titleKeys(title) { // exact title first, then without "(Radio Edit)" etc.
+		for _, a := range want {
+			if id := j.idByKey[k][a]; id != "" {
+				return id, true
+			}
+		}
+	}
+	return "", false
+}
+
+// Stream proxies the original audio file of a library item (Range supported),
+// keeping the API key on the server. It reports false, having written nothing,
+// when Jellyfin can't serve it, so the caller can fall back to YouTube.
+func (j *JellyfinIndex) Stream(w http.ResponseWriter, r *http.Request, itemID string) bool {
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", j.base+"/Audio/"+url.PathEscape(itemID)+"/stream?static=true", nil)
+	req.Header.Set("Authorization", `MediaBrowser Token="`+j.key+`"`)
+	if rng := r.Header.Get("Range"); rng != "" {
+		req.Header.Set("Range", rng)
+	}
+	resp, err := (&http.Client{}).Do(req) // no timeout: long-lived body
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return false
+	}
+	for _, h := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+	return true
 }

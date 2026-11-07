@@ -34,16 +34,26 @@ type PlaylistSummary struct {
 // PlaylistStore keeps playlists (and the special "Liked songs" one) in a JSON
 // file inside the data directory so they follow you across devices.
 type PlaylistStore struct {
-	mu    sync.Mutex
-	path  string
-	lists []*Playlist
+	mu         sync.Mutex
+	path       string
+	lists      []*Playlist
+	supPath    string
+	suppressed map[string]bool // songs the user un-liked: automatic liking must not bring them back
 }
 
 func NewPlaylistStore(dir string) (*PlaylistStore, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	s := &PlaylistStore{path: filepath.Join(dir, "playlists.json")}
+	s := &PlaylistStore{path: filepath.Join(dir, "playlists.json"), supPath: filepath.Join(dir, "liked-suppressed.json"), suppressed: map[string]bool{}}
+	if b, err := os.ReadFile(s.supPath); err == nil {
+		var ids []string
+		if json.Unmarshal(b, &ids) == nil {
+			for _, id := range ids {
+				s.suppressed[id] = true
+			}
+		}
+	}
 	if b, err := os.ReadFile(s.path); err == nil {
 		if err := json.Unmarshal(b, &s.lists); err != nil {
 			return nil, err
@@ -95,6 +105,66 @@ func (s *PlaylistStore) find(id string) *Playlist {
 		}
 	}
 	return nil
+}
+
+func (s *PlaylistStore) saveSuppressedLocked() {
+	ids := make([]string, 0, len(s.suppressed))
+	for id := range s.suppressed {
+		ids = append(ids, id)
+	}
+	b, _ := json.Marshal(ids)
+	os.WriteFile(s.supPath, b, 0o600)
+}
+
+// Suppress remembers that the user un-liked a song, so it is never liked again
+// automatically (liking it by hand clears this).
+func (s *PlaylistStore) Suppress(id string) {
+	if !videoIDRe.MatchString(id) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.suppressed[id] {
+		s.suppressed[id] = true
+		s.saveSuppressedLocked()
+	}
+}
+
+func (s *PlaylistStore) IsSuppressed(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.suppressed[id]
+}
+
+// AutoLike adds songs to "Liked songs" on the system's own initiative (they are
+// in the Jellyfin library). Songs the user un-liked are skipped. It returns the
+// ids that were newly liked.
+func (s *PlaylistStore) AutoLike(tracks []Track) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(likedID)
+	if p == nil {
+		return nil
+	}
+	have := map[string]bool{}
+	for _, t := range p.Tracks {
+		have[t.ID] = true
+	}
+	var added []string
+	for _, raw := range tracks {
+		t, ok := sanitizeTrack(raw)
+		if !ok || have[t.ID] || s.suppressed[t.ID] || len(p.Tracks) >= 5000 {
+			continue
+		}
+		have[t.ID] = true
+		p.Tracks = append(p.Tracks, t)
+		added = append(added, t.ID)
+	}
+	if len(added) > 0 {
+		p.Updated = time.Now()
+		s.save()
+	}
+	return added
 }
 
 func (s *PlaylistStore) save() error {
@@ -205,6 +275,10 @@ func (s *PlaylistStore) AddTracks(id string, tracks []Track) (int, error) {
 	added := 0
 	for _, raw := range tracks {
 		t, ok := sanitizeTrack(raw)
+		if ok && id == likedID && s.suppressed[t.ID] { // a deliberate like overrides an earlier un-like
+			delete(s.suppressed, t.ID)
+			s.saveSuppressedLocked()
+		}
 		if !ok || have[t.ID] || len(p.Tracks) >= 5000 {
 			continue
 		}
