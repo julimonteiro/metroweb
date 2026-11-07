@@ -11,6 +11,7 @@ A self-hosted YouTube Music web client, modelled on [Metrolist](https://github.c
 - ♥ likes a song **and** downloads it to your library; the ⋮ menu has radio, play next, queue, add to playlist, download, go to artist/album and **share link**
 - Paste a YouTube / YouTube Music link into the search box to open that song, artist, album or playlist
 - Downloads land in `Artist/Album/Title.m4a` with tags and a square cover, are never duplicated, and trigger a Jellyfin library rescan if you configure it
+- **Stats**: your top artists, songs and albums, an artists-over-time chart, genre breakdown, month-by-month favourites, listening streak and the hours you listen most (last 30 days, 3 months, year or all time)
 - Installable as a PWA
 
 ## Run with Docker (recommended)
@@ -23,7 +24,7 @@ docker compose up -d --build
 
 On Linux, make sure the music folder is writable by UID 1000 (`sudo chown 1000:1000 music`).
 
-Open `http://localhost:8080`. The initial login is **`admin` / `admin`** (accepted only from your own network until you change it): change it from the account menu (avatar on phones, "admin" in the sidebar on desktop). A banner reminds you until you do.
+Open `http://localhost:8787`. The initial login is **`admin` / `admin`** (accepted only from your own network until you change it): change it from the account menu (avatar on phones, "admin" in the sidebar on desktop). A banner reminds you until you do.
 
 The image bundles `yt-dlp`, `ffmpeg` and Deno. Rebuild it now and then (`docker compose build --no-cache`) to pick up a fresh `yt-dlp`.
 
@@ -37,12 +38,13 @@ go run . -library ~/Music/metroweb
 
 | Flag | Env | What it does |
 |---|---|---|
-| `-addr` | | Listen address (default `127.0.0.1:8080`, this machine only) |
+| `-addr` | | Listen address (default `127.0.0.1:8787`, this machine only) |
 | `-library` | `METROWEB_LIBRARY` | Folder where songs are saved (the one Jellyfin watches) |
 | `-jellyfin-url` | `JELLYFIN_URL` | e.g. `http://jellyfin:8096`; enables the automatic rescan |
 | `-jellyfin-key` | `JELLYFIN_API_KEY` | API key (Dashboard > API Keys) |
 | `-user` / `-password` | `METROWEB_USER` / `METROWEB_PASSWORD` | **Initial** credentials, used on first run only (default `admin`/`admin`) |
 | `-data` | `METROWEB_DATA` | Data folder: credentials (hashed), playlists, session secret, stream cache |
+| `-genres` | `METROWEB_GENRES=0` | Turn off genre lookups for the Stats page (on by default) |
 | `-trust-proxy` | `METROWEB_TRUST_PROXY=1` | Trust `X-Forwarded-For` (behind a reverse proxy or tunnel) for login rate limiting |
 
 ## Security
@@ -55,7 +57,7 @@ metroweb is meant to be reachable from the internet, so it is locked down by def
 - **CSRF protection** (cross-site writes are rejected), a strict **Content-Security-Policy** (own scripts only, no framing), HSTS over HTTPS, and no referrer leakage.
 - **Everything from the client is validated**: video/browse ids against strict patterns before they reach `yt-dlp`, playlist data sanitised and size-capped, the cover-art proxy limited to Google/YouTube hosts with redirects disabled (no SSRF), request bodies and timeouts bounded.
 - **Nothing can run commands on your machine through the app.** The only external programs are `yt-dlp` and `ffmpeg`, always started with fixed arguments and validated ids (never through a shell), and with the user's yt-dlp config ignored.
-- **Listens on `127.0.0.1` by default.** Expose it only through HTTPS or a private network. The Docker setup publishes `127.0.0.1:8080` only, runs as a non-root user with a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and write access only to `/music`, `/data` and `/tmp`. Prefer Docker over running the binary directly: that way a bug in a downloader could at worst touch your music folder.
+- **Listens on `127.0.0.1` by default.** Expose it only through HTTPS or a private network. The Docker setup publishes `127.0.0.1:8787` only, runs as a non-root user with a read-only root filesystem, no Linux capabilities, `no-new-privileges`, and write access only to `/music`, `/data` and `/tmp`. Prefer Docker over running the binary directly: that way a bug in a downloader could at worst touch your music folder.
 
 Still your job: keep `yt-dlp` and the image updated, use a strong unique password, and keep HTTPS in front of it.
 
@@ -63,18 +65,18 @@ Still your job: keep `yt-dlp` and the image updated, use a strong unique passwor
 
 Always use **HTTPS** over the internet, otherwise your password travels in clear text. Set `METROWEB_TRUST_PROXY=1` only when a reverse proxy or tunnel on the same machine is the *only* way in (otherwise anyone could spoof `X-Forwarded-For`). Options:
 
-1. **Tailscale** (simplest and safest): install it on the server and your phone and browse to `http://your-server:8080`; nothing is exposed to the internet. `tailscale serve` gives you HTTPS for free.
+1. **Tailscale** (simplest and safest): install it on the server and your phone and browse to `http://your-server:8787`; nothing is exposed to the internet. `tailscale serve` gives you HTTPS for free.
 2. **A reverse proxy with HTTPS**, the same way you would publish Jellyfin. With Caddy:
 
    ```
    music.example.com {
        encode zstd gzip
-       reverse_proxy localhost:8080
+       reverse_proxy localhost:8787
    }
    ```
 
    (With Cloudflare DNS challenge: add `tls { dns cloudflare {env.CF_API_TOKEN} }` as in the Caddy-Cloudflare build.)
-3. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8080` (or a named tunnel on your domain). HTTPS included.
+3. **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:8787` (or a named tunnel on your domain). HTTPS included.
 
 **Change the `admin` password before exposing the server.** Anyone who is signed in can queue downloads onto your disk.
 
@@ -102,7 +104,12 @@ All routes except `/login` and the PWA files require a session.
 | `GET/POST /api/playlists` · `GET/PATCH/DELETE /api/playlists/{id}` | Playlists (`liked` is the built-in Liked songs) |
 | `POST /api/playlists/{id}/tracks` · `DELETE /api/playlists/{id}/tracks/{trackId}` | Edit a playlist |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
+| `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
 | `GET/POST /api/account` | Current user / change username and password |
+
+## Stats and privacy
+
+A song counts as a play after 30 seconds of listening. The history is a plain file on your server (`<data>/plays.jsonl`); nothing is sent to analytics services. For the genre chart, the server asks [MusicBrainz](https://musicbrainz.org) for each artist's genres (only the artist *name* is sent, at most one request per second, results cached in `<data>/genres.json`). Start with `METROWEB_GENRES=0` to turn that off.
 
 ## Shortcuts (desktop)
 

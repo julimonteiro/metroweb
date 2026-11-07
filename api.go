@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,7 +32,7 @@ func call[T any](w http.ResponseWriter, r *http.Request, what string, fn func(ct
 	writeJSON(w, 200, v)
 }
 
-func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore) {
+func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *StatsStore) {
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		if q == "" || len(q) > 200 {
@@ -130,6 +131,34 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore) {
 	})
 	mux.HandleFunc("/api/downloads", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, lib.Status())
+	})
+
+	// --- listening stats ---
+	mux.HandleFunc("/api/plays", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			apiErr(w, 405, "method not allowed")
+			return
+		}
+		var in struct {
+			Track Track `json:"track"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in) != nil {
+			apiErr(w, 400, "invalid request")
+			return
+		}
+		counted, err := st.Record(in.Track, time.Now())
+		if err != nil && !counted {
+			apiErr(w, 400, err.Error())
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"counted": counted})
+	})
+	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		tz, _ := strconv.Atoi(r.URL.Query().Get("tz")) // minutes east of UTC
+		if tz < -14*60 || tz > 14*60 {
+			tz = 0
+		}
+		writeJSON(w, 200, st.Stats(r.URL.Query().Get("range"), tz, time.Now()))
 	})
 
 	// --- playlists (and "Liked songs") ---

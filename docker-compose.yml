@@ -5,10 +5,12 @@ services:
     ports:
       # Only this machine can reach it directly. Put HTTPS in front (Caddy,
       # Cloudflare Tunnel, Tailscale) to use it from elsewhere; see the README.
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8787:8080"
     environment:
       # Set to 1 ONLY when a reverse proxy/tunnel on this machine is the sole way in.
       METROWEB_TRUST_PROXY: "0"
+      # Genre lookups for the Stats page ask MusicBrainz for artist names only. "0" disables.
+      METROWEB_GENRES: "1"
       # Optional: ask Jellyfin to rescan after every download.
       JELLYFIN_URL: ""
       JELLYFIN_API_KEY: ""

@@ -35,6 +35,7 @@ const IC = {
   del: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
   edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
   back: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
+  stats: 'M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z',
   album: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z',
 };
 const ic = (n, s) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"${s ? ` style="width:${s}px;height:${s}px"` : ''}><path d="${IC[n]}"/></svg>`;
@@ -116,7 +117,7 @@ function rowHTML(t, l, i, o = {}) {
     ${o.num ? `<span class="num">${o.num}</span>` : `<img class="art" loading="lazy" src="${img(t.thumb)}" alt="">`}
     <span class="eq"><i></i><i></i><i></i></span>
     <div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${stIcon(t.id)}<span>${esc(sub)}</span></div></div>
-    <span class="dur">${esc(t.duration)}</span>
+    <span class="dur"${o.right !== undefined ? ' style="color:var(--accent);font-weight:700"' : ''}>${esc(o.right ?? t.duration)}</span>
     <button class="iconbtn" data-more aria-label="More options">${ic('more')}</button>
   </div>`;
 }
@@ -159,13 +160,14 @@ const ROUTES = [
   [/^\/$/, 'home', viewHome],
   [/^\/search$/, 'search', viewSearch],
   [/^\/library$/, 'library', viewLibrary],
+  [/^\/stats$/, 'stats', viewStats],
   [/^\/queue$/, 'queue', viewQueue],
   [/^\/artist\/([\w-]+)$/, 'artist', viewArtist],
   [/^\/album\/([\w-]+)$/, 'album', viewAlbum],
   [/^\/yt\/([\w-]+)$/, 'yt', viewYT],
   [/^\/playlist\/([\w-]+)$/, 'playlist', viewPlaylist],
 ];
-const TAB_OF = { home: 'home', search: 'search', library: 'library', queue: 'queue', playlist: 'library' };
+const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library' };
 
 function route() {
   const { path, params } = parseHash();
@@ -412,6 +414,147 @@ async function viewPlaylist(c) {
   bindActions(c);
 }
 
+// ---------- stats ----------
+let statsCache = null;
+const PALETTE = ['#d0bcff', '#efb8c8', '#a8d5a2', '#9ecaff', '#ffd180', '#80deea', '#ffab91', '#b0bec5'];
+const fmtN = n => Number(n).toLocaleString('en-US');
+const fmtTime = m => m >= 120 ? `${(m / 60).toFixed(m >= 6000 ? 0 : 1).replace(/\.0$/, '')} h` : `${m} min`;
+const STAT_RANGES = [['30d', '30 days'], ['90d', '3 months'], ['365d', 'Year'], ['all', 'All time']];
+
+async function viewStats(c) {
+  let range = store.get('mw.statsRange', '90d'), timer;
+  c.set(`<div class="top"><h1>Stats</h1>${avatarBtn()}</div>
+    <div class="chips" id="srange" role="tablist">${STAT_RANGES.map(([k, n]) => `<button class="chip${k === range ? ' on' : ''}" data-r="${k}" role="tab">${n}</button>`).join('')}</div>
+    <div id="sbody">${`<div class="tiles">${'<div class="tile skeleton"><div class="l1"></div><div class="l2"></div></div>'.repeat(5)}</div>`}</div>`);
+  async function load() {
+    clearTimeout(timer);
+    let s;
+    try { s = await api(`/api/stats?range=${range}&tz=${-new Date().getTimezoneOffset()}`); }
+    catch (e) { if (c.alive()) $('#sbody').innerHTML = errorHTML('Could not load your stats: ' + e.message); return; }
+    if (!c.alive()) return;
+    $('#sbody').innerHTML = statsHTML(s);
+    wireCharts(s);
+    if (s.genresEnabled && s.totals.plays > 0 && !s.genres.length && s.genresPending > 0) timer = setTimeout(() => { if (c.alive()) load(); }, 15000);
+  }
+  $('#view').onclick = e => {
+    const r = e.target.closest('[data-r]');
+    if (r) { range = r.dataset.r; store.set('mw.statsRange', range); $$('#srange .chip').forEach(b => b.classList.toggle('on', b.dataset.r === range)); load(); return; }
+    const ar = e.target.closest('[data-sa]');
+    if (ar && ar.dataset.sa) go('/artist/' + ar.dataset.sa);
+  };
+  await load();
+}
+
+function statsHTML(s) {
+  const t = s.totals;
+  if (!t.plays) return emptyHTML('stats', 'Nothing here yet.<br>Listen to some music and your stats will show up.', '<a class="btn" href="#/search">Find music</a>');
+  const peak = s.byHour.indexOf(Math.max(...s.byHour));
+  const hr12 = h => `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`;
+  const top = s.topArtists, max = top.length ? top[0].plays : 1, f = top[0];
+  const pic = (a, cls = '') => a.thumb ? `<img class="${cls}" loading="lazy" src="${img(a.thumb)}" alt="">` : `<div class="ph ${cls}">${ic('user')}</div>`;
+  let h = `<div class="tiles">
+    <div class="tile hi"><b>${fmtN(t.plays)}</b><span>Plays</span></div>
+    <div class="tile"><b>${fmtTime(t.minutes)}</b><span>Listening time</span></div>
+    <div class="tile"><b>${fmtN(t.artists)}</b><span>Artists</span></div>
+    <div class="tile"><b>${fmtN(t.songs)}</b><span>Songs</span></div>
+    <div class="tile"><b>${t.streak}</b><span>Day streak${t.streak === 1 ? '' : 's'}</span></div></div>`;
+
+  h += `<div class="stats-cols"><div class="panel"><h3>Top artists</h3>
+    <div class="feat" data-sa="${esc(f.id || '')}">
+      <div class="pic">${pic(f)}<span class="badge">1</span></div>
+      <div><div class="nm">${esc(f.name)}</div><div class="mt">${fmtN(f.plays)} plays · ${fmtTime(f.minutes)}</div></div></div>
+    ${top.slice(1).map((a, i) => `<div class="rank" data-sa="${esc(a.id || '')}"><span class="rk">${i + 2}</span>${pic(a)}
+      <div style="min-width:0"><div class="rn">${esc(a.name)}</div><div class="bar"><i style="width:${Math.max(4, a.plays / max * 100)}%"></i></div></div>
+      <span class="rv">${fmtN(a.plays)}</span></div>`).join('')}</div>`;
+
+  const songs = s.topSongs;
+  h += `<div class="panel"><h3>Top songs</h3>${(() => { const l = reg('ts', songs, 'one'); return songs.map((t, i) => rowHTML(t, l, i, { num: i + 1, right: `${fmtN(t.plays)}×` })).join(''); })()}</div></div>`;
+
+  h += `<div class="panel"><h3>Artists over time<small>${s.granularity === 'day' ? 'per day' : s.granularity === 'week' ? 'per week' : 'per month'}</small></h3>
+    <div class="chartwrap" id="areaChart"></div>
+    <div class="legend">${s.series.map((x, i) => `<span><i class="dot" style="background:${PALETTE[i]}"></i><span>${esc(x.name)}</span></span>`).join('')}</div></div>`;
+
+  h += `<div class="stats-cols"><div class="panel"><h3>Genres</h3>${genresHTML(s)}</div>
+    <div class="panel"><h3>When you listen</h3>
+      <div class="big-num">Most active around <b>${hr12(peak)}</b></div>
+      <div class="hours" role="img" aria-label="Plays by hour of day">${s.byHour.map((v, i) => `<i class="${i === peak ? 'pk' : ''}" style="height:${Math.max(2, v / Math.max(1, s.byHour[peak]) * 100)}%" title="${hr12(i)}: ${v} plays"></i>`).join('')}</div>
+      <div class="hours-x"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11 PM</span></div></div></div>`;
+
+  const months = s.months.filter(m => m.plays > 0).reverse();
+  h += `<h2 class="sec"><span>Month by month</span></h2><div class="hscroll">${months.map(m => `<div class="mcard" data-sa="${esc((m.topArtist && m.topArtist.id) || '')}">
+      <div class="mm">${esc(monthLabel(m.key))}</div>${m.topArtist ? pic(m.topArtist) : ''}
+      <div class="mn">${m.topArtist ? esc(m.topArtist.name) : ''}</div><div class="mp">${fmtN(m.plays)} plays</div></div>`).join('')}</div>`;
+
+  if (s.topAlbums.length) {
+    const items = s.topAlbums.map(a => ({ type: 'album', id: a.id, title: a.title, subtitle: `${a.artist} · ${fmtN(a.plays)} plays`, thumb: a.thumb })).filter(a => a.id);
+    if (items.length) h += section('Top albums', hscroll(items, reg('talb', items)));
+  }
+  return h;
+}
+const monthLabel = key => new Date(key + '-02T12:00:00').toLocaleString('en-US', { month: 'short', year: 'numeric' });
+
+function genresHTML(s) {
+  if (!s.genres.length) {
+    const msg = !s.genresEnabled ? 'Genre lookup is turned off on this server.'
+      : s.genresPending > 0 ? 'Looking up genres for your artists… this page refreshes by itself.'
+      : "Couldn't find genres for these artists yet.";
+    return `<div class="note">${msg}</div>`;
+  }
+  const R = 70, C = 2 * Math.PI * R; let off = 0;
+  const segs = s.genres.map((g, i) => {
+    const len = Math.max(0, g.pct / 100 * C - 2), seg = `<circle cx="100" cy="100" r="${R}" fill="none" stroke="${PALETTE[i % PALETTE.length]}" stroke-width="26" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}" transform="rotate(-90 100 100)"/>`;
+    off += g.pct / 100 * C; return seg;
+  }).join('');
+  return `<div class="donut"><svg viewBox="0 0 200 200" role="img" aria-label="Genre breakdown"><circle cx="100" cy="100" r="${R}" fill="none" stroke="var(--high)" stroke-width="26"/>${segs}
+      <text class="ctr2" x="100" y="94">Top genre</text><text class="ctr" x="100" y="114">${esc(s.genres[0].name.length > 14 ? s.genres[0].name.slice(0, 13) + '…' : s.genres[0].name)}</text></svg>
+    <div class="glist">${s.genres.map((g, i) => `<div><i class="dot" style="background:${PALETTE[i % PALETTE.length]}"></i><span>${esc(g.name)}</span><em>${g.pct.toFixed(g.pct < 10 ? 1 : 0)}%</em></div>`).join('')}</div></div>`;
+}
+
+// Stacked, smoothed area chart with a hover/touch tooltip.
+function wireCharts(s) {
+  const el = $('#areaChart'); if (!el || !s.series.length || !s.timeline.length) { if (el) el.innerHTML = '<div class="note">Not enough data yet.</div>'; return; }
+  let lastW = 0;
+  const draw = () => { const w = Math.max(280, Math.round(el.clientWidth)); if (Math.abs(w - lastW) < 8) return; lastW = w; drawArea(s, el, w); };
+  draw();
+  if (window.ResizeObserver) { const ro = new ResizeObserver(() => { if (!el.isConnected) ro.disconnect(); else draw(); }); ro.observe(el); }
+}
+function drawArea(s, el, W) {
+  const H = 210, L = 30, R = 6, TP = 10, B = 26, n = s.timeline.length;
+  const x = i => n > 1 ? L + i * (W - L - R) / (n - 1) : (W + L - R) / 2;
+  const totals = s.timeline.map((_, i) => s.series.reduce((a, se) => a + se.data[i], 0));
+  const maxV = Math.max(1, ...totals), niceMax = Math.ceil(maxV / 4) * 4 || 4;
+  const y = v => TP + (H - TP - B) * (1 - v / niceMax);
+  const smooth = pts => pts.map((p, i) => i === 0 ? `M${p[0]},${p[1]}` : `C${(pts[i-1][0] + p[0]) / 2},${pts[i-1][1]} ${(pts[i-1][0] + p[0]) / 2},${p[1]} ${p[0]},${p[1]}`).join(' ');
+  const cum = s.timeline.map(() => 0); let paths = '';
+  s.series.forEach((se, k) => {
+    const lower = cum.slice(); se.data.forEach((v, i) => cum[i] += v);
+    const up = cum.map((v, i) => [x(i), y(v)]), lo = lower.map((v, i) => [x(i), y(v)]).reverse();
+    const d = n === 1 ? '' : smooth(up) + ' L' + lo[0][0] + ',' + lo[0][1] + ' ' + smooth(lo).replace(/^M[^C]*/, '');
+    paths += n === 1 ? `<rect x="${x(0) - 14}" y="${y(cum[0])}" width="28" height="${y(lower[0]) - y(cum[0])}" fill="${PALETTE[k]}" rx="4"/>` :
+      `<path d="${d} Z" fill="${PALETTE[k]}" fill-opacity=".82"/>`;
+  });
+  const grid = [0, 1, 2, 3, 4].map(g => { const v = niceMax / 4 * g; return `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--outline)" stroke-opacity="${g ? .35 : .8}" stroke-dasharray="${g ? '3 4' : '0'}"/><text x="${L - 6}" y="${y(v) + 3.5}" fill="var(--dim)" font-size="11" text-anchor="end">${Math.round(v)}</text>`; }).join('');
+  const ticks = Math.min(n, W > 500 ? 7 : W > 360 ? 5 : 4), xl = [...new Set(Array.from({ length: ticks }, (_, k) => Math.round(k * (n - 1) / Math.max(1, ticks - 1))))]
+    .map(i => `<text x="${x(i)}" y="${H - 6}" fill="var(--dim)" font-size="11" text-anchor="${i === 0 && n > 1 ? 'start' : i === n - 1 && n > 1 ? 'end' : 'middle'}">${esc(s.timeline[i].label)}</text>`).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Plays per artist over time">${grid}${paths}${xl}
+      <line id="cl" x1="0" x2="0" y1="${TP}" y2="${H - B}" stroke="var(--on)" stroke-opacity=".5" stroke-dasharray="3 3" visibility="hidden"/>
+      <rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/></svg><div class="chart-tip" id="ctip"></div>`;
+  const svg = el.querySelector('svg'), tip = $('#ctip'), cl = $('#cl');
+  const show = ev => {
+    const b = svg.getBoundingClientRect(), px = (ev.clientX - b.left) / b.width * W;
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / Math.max(1, n - 1)))));
+    cl.setAttribute('x1', x(i)); cl.setAttribute('x2', x(i)); cl.setAttribute('visibility', 'visible');
+    tip.innerHTML = `<b>${esc(s.timeline[i].label)} · ${s.timeline[i].plays} plays</b>` + s.series.filter(se => se.data[i]).map(se => `<div><i class="dot" style="background:${PALETTE[s.series.indexOf(se)]}"></i>${esc(se.name)} <b style="margin:0 0 0 auto;padding-left:10px">${se.data[i]}</b></div>`).join('');
+    tip.classList.add('on');
+    const tw = tip.offsetWidth, left = x(i) / W * b.width;
+    tip.style.left = Math.max(0, Math.min(b.width - tw, left - tw / 2)) + 'px';
+  };
+  const hide = () => { tip.classList.remove('on'); cl.setAttribute('visibility', 'hidden'); };
+  svg.addEventListener('pointermove', show); svg.addEventListener('pointerdown', show);
+  svg.addEventListener('pointerleave', hide);
+  svg.addEventListener('pointerup', e => { if (e.pointerType === 'touch') setTimeout(hide, 1800); });
+}
+
 // ---------- queue ----------
 function viewQueue(c) {
   c.set(`<div class="top"><h1>Queue</h1>
@@ -616,9 +759,10 @@ function paintAccount() {
 // ============================================================================
 function persist() { store.set('mw.queue', queue.slice(0, 300)); store.set('mw.idx', idx); }
 
+let counted = false;     // has the current listen been reported to the stats?
 function playAt(i) {
   if (i < 0 || i >= queue.length) return;
-  idx = i;
+  idx = i; counted = false;
   const t = queue[i];
   audio.src = `/api/stream/${t.id}?fmt=${fmt}`;
   audio.play().catch(e => console.warn(e));
@@ -693,6 +837,17 @@ function toHSL(r, g, b) {
   let h = 0, s = 0;
   if (d) { s = d / (1 - Math.abs(2 * l - 1)); h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = Math.round(h * 60); if (h < 0) h += 360; }
   return [h, s, l];
+}
+
+// A listen counts after 30 seconds (or half of a very short track).
+function maybeCountPlay() {
+  const t = cur();
+  if (counted || !t || audio.paused) return;
+  const d = audio.duration;
+  if (audio.currentTime >= 30 || (isFinite(d) && d < 60 && audio.currentTime >= d / 2)) {
+    counted = true;
+    send('POST', '/api/plays', { track: T(t) }).then(() => { statsCache = null; }).catch(() => { counted = false; });
+  }
 }
 
 // keeps the player UI and visible rows in sync
@@ -814,7 +969,7 @@ $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 
 // audio
 audio.addEventListener('play', updateNow); audio.addEventListener('pause', updateNow);
-audio.addEventListener('ended', () => next(true));
+audio.addEventListener('ended', () => { counted = false; next(true); });
 audio.addEventListener('error', () => { if (!audio.src) return; snack('Playback failed, skipping…'); setTimeout(() => next(), 1200); });
 let seeking = false;
 function paintBars() {
@@ -826,6 +981,7 @@ function paintBars() {
 }
 audio.addEventListener('timeupdate', () => {
   paintBars();
+  maybeCountPlay();
   if ('mediaSession' in navigator && audio.duration && isFinite(audio.duration)) {
     try { navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate }); } catch {}
   }
@@ -851,7 +1007,7 @@ if ('mediaSession' in navigator) {
 // ============================================================================
 function paintStatic() {
   $$('[data-ic]').forEach(e => { e.innerHTML = ic(e.dataset.ic); e.style.display = 'inline-flex'; });
-  const nav = { home: ['home', 'Home'], search: ['search', 'Search'], library: ['lib', 'Library'], queue: ['queue', 'Queue'] };
+  const nav = { home: ['home', 'Home'], search: ['search', 'Search'], library: ['lib', 'Library'], stats: ['stats', 'Stats'], queue: ['queue', 'Queue'] };
   $$('#nav button').forEach(b => b.querySelector('.pill').innerHTML = ic(nav[b.dataset.nav][0]));
   $$('#side button[data-nav]').forEach(b => b.innerHTML = ic(nav[b.dataset.nav][0]) + nav[b.dataset.nav][1]);
   $('#sideAcc').innerHTML = ic('user') + '<span id="sideUser">Account</span>';

@@ -23,7 +23,7 @@ var webFS embed.FS
 var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:8080", "listen address (127.0.0.1 = this machine only; use 0.0.0.0:8080 only behind HTTPS or a private network)")
+	addr := flag.String("addr", "127.0.0.1:8787", "listen address (127.0.0.1 = this machine only; use 0.0.0.0:8787 only behind HTTPS or a private network)")
 	home, _ := os.UserHomeDir()
 	libDir := flag.String("library", envOr("METROWEB_LIBRARY", filepath.Join(home, "Music", "metroweb")), "folder where songs are saved (the one Jellyfin watches)")
 	jfURL := flag.String("jellyfin-url", os.Getenv("JELLYFIN_URL"), "e.g. http://localhost:8096 (optional, enables automatic library rescan)")
@@ -32,6 +32,7 @@ func main() {
 	pass := flag.String("password", os.Getenv("METROWEB_PASSWORD"), "initial password (default admin; first run only)")
 	dataDir := flag.String("data", envOr("METROWEB_DATA", filepath.Join(userConfigDir(home), "metroweb")), "server data folder (credentials, playlists, session secret)")
 	trustProxy := flag.Bool("trust-proxy", os.Getenv("METROWEB_TRUST_PROXY") == "1", "trust X-Forwarded-For (behind a reverse proxy/tunnel)")
+	genres := flag.Bool("genres", os.Getenv("METROWEB_GENRES") != "0", "look up artist genres on MusicBrainz for the stats page (sends artist names only)")
 	flag.Parse()
 
 	lib := NewLibrary(*libDir, *jfURL, *jfKey)
@@ -51,7 +52,11 @@ func main() {
 	if perr != nil {
 		log.Fatal(perr)
 	}
-	registerAPI(mux, lib, playlists)
+	stats, serr := NewStatsStore(*dataDir, *genres)
+	if serr != nil {
+		log.Fatal(serr)
+	}
+	registerAPI(mux, lib, playlists, stats)
 	mux.HandleFunc("/api/img", handleImg)
 
 	streamCacheDir = filepath.Join(*dataDir, "cache")
