@@ -227,7 +227,7 @@ func parseSearch(resp map[string]any) []Track {
 		title := strings.Join(runsText(get(cols, 0, "musicResponsiveListItemFlexColumnRenderer", "text")), "")
 		var meta []string
 		for _, s := range runsText(get(cols, 1, "musicResponsiveListItemFlexColumnRenderer", "text")) {
-			if strings.TrimSpace(s) != "•" && strings.TrimSpace(s) != "" {
+			if !isSep(s) {
 				meta = append(meta, s)
 			}
 		}
@@ -252,6 +252,16 @@ func parseSearch(resp map[string]any) []Track {
 		tracks = append(tracks, t)
 	}
 	return tracks
+}
+
+// isSep reports whether a text run is just a separator between artists or
+// fields (", ", " e ", " & ", " • ", …), which YouTube Music sends as runs.
+func isSep(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "•", "·", ",", "e", "&", "and", "y", "et", "und", "feat.", "ft.":
+		return true
+	}
+	return false
 }
 
 func isDuration(s string) bool {
