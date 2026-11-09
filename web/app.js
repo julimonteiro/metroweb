@@ -173,8 +173,9 @@ const ROUTES = [
   [/^\/album\/([\w-]+)$/, 'album', viewAlbum],
   [/^\/yt\/([\w-]+)$/, 'yt', viewYT],
   [/^\/playlist\/([\w-]+)$/, 'playlist', viewPlaylist],
+  [/^\/mix\/([\w-]+)$/, 'mix', viewForYou],
 ];
-const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library' };
+const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home' };
 
 function route() {
   const { path, params } = parseHash();
@@ -203,20 +204,26 @@ async function viewHome(c) {
   const last = recent[0] || liked[liked.length - 1];
   c.set(`<div class="top"><a class="search" href="#/search">${ic('search')}<span>Search songs, artists, albums…</span></a>${avatarBtn()}</div>
     <div id="banner">${bannerHTML()}</div>
-    <div id="hQuick"></div><div id="hRecent"></div><div id="hLists"></div><div id="hBrowse">${section('Browse', skeletonCards(6))}</div>`);
+    <div id="hMixes"></div><div id="hQuick"></div><div id="hRecent"></div><div id="hLists"></div><div id="hBrowse">${section('Browse', skeletonCards(6))}</div>`);
   const own = playlists.filter(p => p.id !== 'liked' || p.count > 0);
   if (c.alive()) {
     const ul = own.map(p => ({ type: 'playlist', id: 'local:' + p.id, title: p.name, subtitle: `${p.count} song${p.count === 1 ? '' : 's'}`, thumb: p.thumb, local: p.id }));
     $('#hLists').innerHTML = ul.length ? section('Your library', hscroll(ul, reg('hl', ul))) : '';
     if (recent.length) $('#hRecent').innerHTML = section('Recently played', hscroll(recent.slice(0, 12).map(x => ({ ...x, type: 'song', subtitle: x.artist })), reg('hr', recent.slice(0, 12), 'one')));
   }
+  // mixes built from your own listening history and Liked songs
+  cached(`/api/mixes?tz=${-new Date().getTimezoneOffset()}`, 10 * 60 * 1000).then(mx => {
+    if (!c.alive() || !mx.length) return;
+    const items = mx.map(m => ({ type: 'playlist', id: 'mix:' + m.id, mixId: m.id, title: m.title, subtitle: m.subtitle, thumb: m.thumb }));
+    $('#hMixes').innerHTML = section('Mixes for you', hscroll(items, reg('hm', items)));
+  }).catch(() => {});
   if (last) {
-    $('#hQuick').innerHTML = section('Made for you', skeletonRows(5));
+    $('#hQuick').innerHTML = section('Because you listen', skeletonRows(5));
     try {
       const radio = await cached('/api/radio/' + last.id);
       if (!c.alive()) return;
       const picks = radio.filter(x => x.id !== last.id).slice(0, 8);
-      $('#hQuick').innerHTML = picks.length ? section('Made for you', `<div class="sub" style="color:var(--dim);font-size:13px;padding:0 4px 6px">Because you played ${esc(last.title)}</div>` + songRows(picks, reg('hq', picks, 'one'))) : '';
+      $('#hQuick').innerHTML = picks.length ? section('Because you listen', `<div class="sub" style="color:var(--dim);font-size:13px;padding:0 4px 6px">Because you played ${esc(last.title)}</div>` + songRows(picks, reg('hq', picks, 'one'))) : '';
     } catch { if (c.alive()) $('#hQuick').innerHTML = ''; }
   } else if (c.alive()) {
     $('#hQuick').innerHTML = emptyHTML('music', 'Search for a song to get started', '<a class="btn" href="#/search">Search</a>');
@@ -365,6 +372,17 @@ async function viewAlbum(c) {
   c.set(tracksHeader({ title: al.title, thumb: al.thumb, sub, icon: 'album', buttons: listButtons() }) +
     songRows(tracks, reg('t', tracks, 'queue'), { noAlbum: true }));
   c.actions = act => listAction(act, tracks, al.title, ytURL('album', al.id));
+  bindActions(c);
+}
+async function viewForYou(c) {
+  c.set(`<div class="head2">${backBtn()}<div class="cov skeleton"></div></div>${skeletonRows(6)}`);
+  const m = (await cached(`/api/mixes?tz=${-new Date().getTimezoneOffset()}`, 10 * 60 * 1000)).find(x => x.id === c.id);
+  if (!c.alive()) return;
+  if (!m) { c.set(topBar('Mix') + emptyHTML('music', 'This mix is not available right now. It is rebuilt from your listening, so it may come back later.', '<a class="btn" href="#/">Home</a>')); return; }
+  const tracks = m.tracks.map(T);
+  c.set(tracksHeader({ title: m.title, thumb: m.thumb, sub: `${esc(m.subtitle)} • ${tracks.length} songs`, icon: 'music', buttons: listButtons().replace(/<button class="iconbtn" data-act="share"[^>]*>.*?<\/button>/, '') }) +
+    songRows(tracks, reg('t', tracks, 'queue')));
+  c.actions = act => listAction(act, tracks, m.title, null);
   bindActions(c);
 }
 async function viewYT(c) {
@@ -999,6 +1017,7 @@ document.addEventListener('click', e => {
     const r = itemOf(card); if (!r || !r.it) return;
     const it = r.it;
     if (it.local) { go('/playlist/' + it.local); return; }
+    if (it.mixId) { go('/mix/' + it.mixId); return; }
     if (it.type === 'artist') go('/artist/' + it.id);
     else if (it.type === 'album') go('/album/' + it.id);
     else if (it.type === 'playlist') { routeState.set(it.id, { title: it.title, thumb: it.thumb }); go('/yt/' + it.id); }

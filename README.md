@@ -123,6 +123,7 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/lyrics?title=&artist=&album=&duration=` | Time-synced (or plain) lyrics from LRCLIB |
 | `GET /api/clip/info?title=&artist=` · `GET /api/clip/offset?song=&clip=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
+| `GET /api/mixes?tz=` | Mixes for you (on repeat, rewind, hidden gems, time of day, artists, genres) |
 | `GET /api/plays/summary` | Play count and last play time per song (feeds the smart shuffle) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
 | `GET/POST /api/account` | Current user / change username and password |
@@ -130,6 +131,19 @@ All routes except `/login` and the PWA files require a session.
 ## Stats and privacy
 
 A song counts as a play after 30 seconds of listening. The history is a plain file on your server (`<data>/plays.jsonl`); nothing is sent to analytics services. For the genre chart, the server asks [MusicBrainz](https://musicbrainz.org) for each artist's genres (only the artist *name* is sent, at most one request per second, results cached in `<data>/genres.json`). Start with `METROWEB_GENRES=0` to turn that off.
+
+## Mixes for you
+
+The Home page opens with mixes built from your own listening history and your Liked songs. They are computed on the server, instantly, only contain songs you already know, and stay the same through the day:
+
+- **On repeat**: what you played most this month.
+- **Rewind**: songs you played a lot and haven't in 45+ days.
+- **Hidden gems**: Liked songs you haven't played here yet (your Jellyfin songs end up here).
+- **Morning / Afternoon / Evening / Late night mix**: what you usually play at this time of day.
+- **Artist mixes**: your songs by each of your top 3 artists.
+- **Genre mixes**: your two biggest genres (from the Stats genre lookups).
+
+A mix only shows up once it has enough songs, so the list grows as you listen. Open one to play it, shuffle it, add it to a playlist (save it) or download it. `GET /api/mixes?tz=` returns them.
 
 ## Smart shuffle
 
