@@ -265,6 +265,9 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 		}
 		writeJSON(w, 200, map[string]bool{"counted": counted})
 	})
+	mux.HandleFunc("/api/plays/summary", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, st.Summary())
+	})
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		tz, _ := strconv.Atoi(r.URL.Query().Get("tz")) // minutes east of UTC
 		if tz < -14*60 || tz > 14*60 {

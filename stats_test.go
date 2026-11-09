@@ -142,3 +142,18 @@ func TestStatsEmpty(t *testing.T) {
 		t.Fatalf("empty stats must still be well formed: %+v", r.Totals)
 	}
 }
+
+func TestSummary(t *testing.T) {
+	s, err := NewStatsStore(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := Track{ID: "aaaaaaaaaaa", Title: "A", Artist: "X"}
+	now := time.Unix(1_700_000_000, 0)
+	s.Record(tr, now)
+	s.Record(tr, now.Add(time.Hour))
+	got := s.Summary()["aaaaaaaaaaa"]
+	if got.N != 2 || got.Last != now.Add(time.Hour).Unix() {
+		t.Fatalf("summary = %+v", got)
+	}
+}

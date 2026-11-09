@@ -123,12 +123,25 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/lyrics?title=&artist=&album=&duration=` | Time-synced (or plain) lyrics from LRCLIB |
 | `GET /api/clip/info?title=&artist=` · `GET /api/clip/offset?song=&clip=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
+| `GET /api/plays/summary` | Play count and last play time per song (feeds the smart shuffle) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
 | `GET/POST /api/account` | Current user / change username and password |
 
 ## Stats and privacy
 
 A song counts as a play after 30 seconds of listening. The history is a plain file on your server (`<data>/plays.jsonl`); nothing is sent to analytics services. For the genre chart, the server asks [MusicBrainz](https://musicbrainz.org) for each artist's genres (only the artist *name* is sent, at most one request per second, results cached in `<data>/genres.json`). Start with `METROWEB_GENRES=0` to turn that off.
+
+## Smart shuffle
+
+Shuffle is not plain random. When you turn it on, the queue is dealt once, in a smart order (so "next", "previous", the queue list and track prefetching all behave normally):
+
+- **Forgotten favourites first.** Each song is weighted by how much you like it (liked, play count) and how long since you last heard it. Songs you love but haven't played in weeks, and songs you own but never played here, tend to surface early; songs you just heard sink to the end.
+- **A dash of luck.** About 15% of the picks ignore the weights, so it stays unpredictable.
+- **No repeats.** Every song plays once per round; the next round is dealt fresh and never opens with the artist you just heard.
+- **Artists spread out.** The same artist is kept a few songs apart whenever the queue allows it.
+- Turning shuffle off puts the queue back in its original order.
+
+The weights use your own listening history (`GET /api/plays/summary`); nothing leaves the server. The algorithm lives in `web/shuffle.js` (tests: `node --test web/shuffle.test.js`).
 
 ## Lyrics and music videos
 

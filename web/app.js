@@ -79,6 +79,7 @@ let idx = store.get('mw.idx', -1);
 let recent = store.get('mw.history', []);
 let repeat = store.get('mw.repeat', 0);        // 0 off, 1 all, 2 one
 let shuffle = store.get('mw.shuffle', false);
+let origQueue = store.get('mw.orig', null);     // the queue in its original order, while shuffled
 let liked = [];                                  // Track[] (oldest first)
 let likedIds = new Set();
 let playlists = [];                              // summaries, incl. "liked"
@@ -336,11 +337,11 @@ async function viewArtist(c) {
   const more = $('#aMore'); if (more) more.onclick = () => { $('#aAbout').classList.toggle('clamp'); more.textContent = $('#aAbout').classList.contains('clamp') ? 'Read more' : 'Show less'; };
   c.actions = async act => {
     if (act === 'play') { if (all.length) playList(all, 0); else snack('No songs to play'); }
-    if (act === 'shuffle') { if (all.length) playList([...all].sort(() => Math.random() - .5), 0); }
+    if (act === 'shuffle') { if (all.length) playShuffled(all); }
     if (act === 'radio') {
       if (!a.radioId) { if (all.length) startRadio(all[0]); return; }
       snack('Starting radio…');
-      try { const r = await api(`/api/mix?id=${encodeURIComponent(a.radioId)}&p=${encodeURIComponent(a.radioParams || '')}&v=${encodeURIComponent(a.radioVideoId || '')}`); playList(r.map(T), 0); }
+      try { const r = await api(`/api/mix?id=${encodeURIComponent(a.radioId)}&p=${encodeURIComponent(a.radioParams || '')}&v=${encodeURIComponent(a.radioVideoId || '')}`); playList(r.map(T), 0, true); }
       catch (e) { snack('Could not start radio: ' + e.message); }
     }
     if (act === 'share') share(ytURL('artist', a.id), a.name);
@@ -383,7 +384,7 @@ const listButtons = (extra = '') => `<button class="btn" data-act="play">${ic('p
   <button class="iconbtn" data-act="share" aria-label="Share link">${ic('share')}</button>${extra}`;
 function listAction(act, tracks, title, url) {
   if (act === 'play' && tracks.length) playList(tracks, 0);
-  if (act === 'shuffle' && tracks.length) playList([...tracks].sort(() => Math.random() - .5), 0);
+  if (act === 'shuffle' && tracks.length) playShuffled(tracks);
   if (act === 'addpl') playlistPicker(tracks, title);
   if (act === 'dlall') downloadAll(tracks);
   if (act === 'share' && url) share(url, title);
@@ -818,10 +819,58 @@ function playAt(i) {
 const streamURL = (t, extra = '') => `/api/stream/${t.id}?fmt=${fmt}&t=${encodeURIComponent(t.title || '')}&a=${encodeURIComponent(t.artist || '')}${extra}`;
 // warm up the next song so it starts without a gap
 function prefetchNext() {
-  const n = queue[idx + 1]; if (!n || shuffle) return;
+  const n = queue[idx + 1]; if (!n) return;
   fetch(`/api/prefetch/${n.id}?fmt=${fmt}&t=${encodeURIComponent(n.title || '')}&a=${encodeURIComponent(n.artist || '')}`).catch(() => {});
 }
-function playList(items, i) { queue = items.map(T); idx = -1; playAt(i); }
+function playList(items, i, keepOrder) {
+  if (shuffle && !keepOrder && items.length > 1) return playShuffled(items, items[i]);
+  origQueue = null; store.set('mw.orig', null);
+  queue = items.map(T); idx = -1; playAt(i);
+}
+
+// ---- smart shuffle (see shuffle.js): the queue itself is reordered, so next, previous, the queue list and prefetch all just work
+async function shuffleOpts() {
+  let stats = {};
+  try { stats = await cached('/api/plays/summary', 2 * 60 * 1000); } catch {}
+  return { stats, liked: likedIds, now: Date.now() / 1000 };
+}
+function keepOrig(items) { origQueue = items.map(T); store.set('mw.orig', origQueue.slice(0, 300)); }
+// start playing `items` shuffled; the first song is `first`, or the best opener when omitted
+async function playShuffled(items, first) {
+  const o = await shuffleOpts();
+  let order;
+  if (first) order = Shuffle.smartOrder(items, { ...o, first });
+  else { order = Shuffle.smartOrder(items, o); }
+  shuffle = true; store.set('mw.shuffle', true);
+  keepOrig(items); queue = order.map(T); idx = -1; playAt(0);
+  const g = Shuffle.gems(items, o.stats, o.liked, o.now);
+  if (g >= 3) snack(`Shuffle mixed in ${g} songs you haven't heard in a while`);
+}
+async function setShuffle(on) {
+  shuffle = on; store.set('mw.shuffle', on);
+  if (on && queue.length > 1) {
+    keepOrig(queue);
+    const o = await shuffleOpts(), c = cur();
+    const order = Shuffle.smartOrder(queue, { ...o, first: c });
+    queue = order.map(T); idx = c ? 0 : -1;
+    const g = Shuffle.gems(queue, o.stats, o.liked, o.now);
+    if (g >= 3) snack(`Shuffle on: ${g} songs you haven't heard in a while are in the mix`);
+  } else if (!on && origQueue) {
+    const have = new Set(queue.map(t => t.id)), c = cur();
+    const back = origQueue.filter(t => have.has(t.id)), seen = new Set(back.map(t => t.id));
+    queue = [...back, ...queue.filter(t => !seen.has(t.id))];
+    idx = c ? Math.max(0, queue.findIndex(t => t.id === c.id)) : -1;
+    origQueue = null; store.set('mw.orig', null);
+  }
+  persist(); renderQueueList(); updateNow();
+}
+// everything played once: deal a fresh round, never opening with the song or artist just heard
+async function nextRound() {
+  const o = await shuffleOpts(), c = cur();
+  const rest = queue.filter(t => !c || t.id !== c.id);
+  const order = Shuffle.smartOrder(rest, { ...o, avoid: c ? [Shuffle.artistOf(c)] : [] });
+  queue = c ? [...order, c] : order; idx = -1; keepOrig(queue); playAt(0);
+}
 function playNow(t) { queue.splice(idx + 1, 0, T(t)); playAt(idx + 1); }
 async function topUpRadio() {
   if (fetchingRadio || idx < 0 || !cur()) return;
@@ -838,15 +887,14 @@ async function startRadio(t) {
   snack('Starting radio…');
   try {
     const data = await api('/api/radio/' + t.id);
-    playList([T(t), ...data.filter(x => x.id !== t.id)], 0);
+    playList([T(t), ...data.filter(x => x.id !== t.id)], 0, true);
   } catch (e) { snack('Could not start radio: ' + e.message); }
 }
 function next(auto) {
   if (!queue.length) return;
   if (auto && repeat === 2) { audio.currentTime = 0; audio.play(); return; }
-  if (shuffle && queue.length > 1) { let n; do { n = Math.floor(Math.random() * queue.length); } while (n === idx); playAt(n); return; }
   if (idx < queue.length - 1) playAt(idx + 1);
-  else if (repeat === 1) playAt(0);
+  else if (repeat === 1) { if (shuffle && queue.length > 2) nextRound(); else playAt(0); }
   else if (auto) { audio.pause(); updateNow(); }
 }
 function prev() { if (audio.currentTime > 3) audio.currentTime = 0; else if (idx > 0) playAt(idx - 1); else audio.currentTime = 0; }
@@ -982,7 +1030,7 @@ document.addEventListener('keydown', e => {
 });
 async function startMix(it) {
   snack('Starting mix…');
-  try { const r = await api('/api/mix?id=' + encodeURIComponent(it.id)); playList(r.map(T), 0); } catch (e) { snack('Could not start mix: ' + e.message); }
+  try { const r = await api('/api/mix?id=' + encodeURIComponent(it.id)); playList(r.map(T), 0, true); } catch (e) { snack('Could not start mix: ' + e.message); }
 }
 
 $$('[data-nav]').forEach(b => b.addEventListener('click', () => go('/' + (b.dataset.nav === 'home' ? '' : b.dataset.nav))));
@@ -990,7 +1038,7 @@ $('#scrim').onclick = closeSheet;
 for (const id of ['play', 'miniPlay', 'dPlay']) $('#' + id).addEventListener('click', e => { e.stopPropagation(); toggle(); });
 for (const id of ['next', 'miniNext', 'dNext']) $('#' + id).addEventListener('click', e => { e.stopPropagation(); next(); });
 for (const id of ['prev', 'dPrev']) $('#' + id).addEventListener('click', prev);
-for (const id of ['shuf', 'dShuf']) $('#' + id).addEventListener('click', () => { shuffle = !shuffle; store.set('mw.shuffle', shuffle); updateNow(); });
+for (const id of ['shuf', 'dShuf']) $('#' + id).addEventListener('click', () => setShuffle(!shuffle));
 for (const id of ['rep', 'dRep']) $('#' + id).addEventListener('click', () => { repeat = (repeat + 1) % 3; store.set('mw.repeat', repeat); updateNow(); snack(['Repeat off', 'Repeat queue', 'Repeat song'][repeat]); });
 for (const id of ['fpFav', 'dFav']) $('#' + id).addEventListener('click', () => toggleLike(cur()));
 for (const id of ['fpDl', 'dDl']) $('#' + id).addEventListener('click', () => { const t = cur(); if (t) { if (stateOf(t.id) === 'err') delete dls[t.id]; download(t.id); } });

@@ -655,3 +655,26 @@ func fillTopArtists(bs []Bucket, plays []Play, gran string, loc *time.Location, 
 		}
 	}
 }
+
+// PlaySummary is what the shuffle needs to know about a song: how often it was
+// heard and when it was heard last.
+type PlaySummary struct {
+	N    int   `json:"n"`
+	Last int64 `json:"last"`
+}
+
+// Summary returns the play count and last play time of every song heard so far.
+func (s *StatsStore) Summary() map[string]PlaySummary {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]PlaySummary, len(s.plays)/2)
+	for _, p := range s.plays {
+		e := out[p.ID]
+		e.N++
+		if p.T > e.Last {
+			e.Last = p.T
+		}
+		out[p.ID] = e
+	}
+	return out
+}
