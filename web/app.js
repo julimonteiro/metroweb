@@ -129,22 +129,28 @@ const FINE = window.matchMedia && matchMedia('(pointer: fine)').matches;
 function rowHTML(t, l, i, o = {}) {
   const c = cur(), isCur = c && c.id === t.id && (l !== 'queue' || i === idx);
   const sub = [t.artist, o.noAlbum ? '' : t.album].filter(Boolean).join(' • ');
-  return `<div ${!o.grip && FINE ? 'draggable="true" ' : ''}class="row${o.grip ? ' hasgrip' : ''}${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
+  return `<div ${!o.grip && FINE ? 'draggable="true" ' : ''}class="row${o.grip ? ' hasgrip' : ''}${o.cols ? ' cols' : ''}${o.reorder ? ' can-reorder' : ''}${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
     ${o.num ? `<span class="num">${o.num}</span>` : `<img class="art" loading="lazy" src="${img(t.thumb)}" alt="">`}
-    <span class="eq"><i></i><i></i><i></i></span>
-    <div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${stIcon(t.id)}<span>${esc(sub)}</span></div></div>
+    <span class="eq"><i></i><i></i><i></i></span><span class="hp" aria-hidden="true">${ic('play', 24)}</span>
+    <div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${stIcon(t.id)}<span class="sub">${esc(sub)}</span></div></div>
+    ${o.cols ? `<div class="c-art">${esc((t.artist || ''))}</div>${o.noAlbum ? '' : `<div class="c-alb">${esc(t.album || '')}</div>`}` : ''}
     <span class="dur"${o.right !== undefined ? ' style="color:var(--accent);font-weight:700"' : ''}>${esc(o.right ?? t.duration)}</span>
     <button class="iconbtn" data-more aria-label="More options">${ic('more')}</button>
     ${o.grip ? `<span class="grip" data-grip title="Drag to reorder" aria-label="Drag to reorder">${ic('grip')}</span>` : ''}
+    ${o.reorder ? `<span class="grip" data-rgrip title="Drag to reorder" aria-label="Drag to reorder">${ic('grip')}</span>` : ''}
   </div>`;
 }
 const songRows = (items, l, o) => items.map((t, i) => rowHTML(t, l, i, o)).join('');
+// a song list that becomes a table with sortable columns on desktop (desktop.js handles the headers)
+const colsHead = o => `<div class="thead"><span></span><button data-sortk="title">Title</button><button data-sortk="artist">Artist</button>${o.noAlbum ? '' : '<button data-sortk="album">Album</button>'}<button data-sortk="duration" class="r" aria-label="Duration">${ic('clock', 16)}</button><span></span>${o.reorder ? '<span></span>' : ''}</div>`;
+const trackTable = (items, l, o = {}) => `<div class="ttable${o.noAlbum ? ' no-alb' : ''}${o.reorder ? ' can-reorder' : ''}" data-l="${l}">${colsHead(o)}<div class="trows">${songRows(items, l, { ...o, cols: true })}</div></div>`;
 
 function cardHTML(it, l, i) {
   const round = it.type === 'artist';
   const img_ = it.local === 'liked' ? `<div class="img likedcov">${ic('heart', 52)}</div>` : it.thumb ? `<img class="img" loading="lazy" src="${img(it.thumb)}" alt="">`
     : `<div class="img ph">${ic(it.type === 'artist' ? 'user' : 'music')}</div>`;
-  return `<button class="card${round ? ' round' : ''}" data-card data-l="${l}" data-i="${i}">${img_}
+  const playable = it.type === 'song' || it.mixId || it.local;   // cards you can start with the hover button
+  return `<button class="card${round ? ' round' : ''}" data-card data-l="${l}" data-i="${i}"><div class="cimg">${img_}${playable ? `<span class="hp-btn" data-hpcard aria-label="Play">${ic('play', 26)}</span>` : ''}</div>
     <div class="ct">${esc(it.title)}</div><div class="cs">${esc(it.subtitle || it.artist || '')}</div></button>`;
 }
 const cards = (items, l) => items.map((it, i) => cardHTML(it, l, i)).join('');
@@ -178,7 +184,10 @@ function parseHash() {
   const [path, qs] = h.split('?');
   return { path: path || '/', params: new URLSearchParams(qs || '') };
 }
-const go = path => { const h = '#' + path; if (location.hash === h) route(); else location.hash = h; };
+let navPush = false, scrollKey = '';
+const scrollMem = new Map();
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('a[href^="#/"]')) navPush = true; }, true);
+const go = path => { navPush = true; const h = '#' + path; if (location.hash === h) route(); else location.hash = h; };
 const goBack = () => { if (window.history.length > 1) window.history.back(); else go('/'); };
 
 const ROUTES = [
@@ -209,12 +218,20 @@ function route() {
   if (TAB_OF[name]) lastTab = TAB_OF[name];
   $$('[data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === lastTab));
   V = { lists: {} };
-  const view = $('#view');
+  reg('queue', queue, 'queue');
+  const view = $('#view'), content = $('#content');
+  // coming back with the browser's back/forward buttons: return to where you were
+  const back = !navPush; navPush = false;
+  if (scrollKey) scrollMem.set(scrollKey, content.scrollTop);
+  scrollKey = location.hash || '#/';
+  const restore = back ? scrollMem.get(scrollKey) : 0;
   view.onclick = null;
   view.style.animation = 'none'; void view.offsetWidth; view.style.animation = '';
-  $('#content').scrollTo(0, 0);
+  content.scrollTo(0, 0);
+  document.dispatchEvent(new Event('mw:route'));
   const ctx = { t, params, id: m[1], alive: () => t === token, set: html => { if (t === token) view.innerHTML = html; } };
-  Promise.resolve(fn(ctx)).catch(e => { console.error(e); ctx.set(topBar('Error') + errorHTML(e.message)); });
+  Promise.resolve(fn(ctx)).then(() => { if (t === token && restore) content.scrollTo(0, restore); })
+    .catch(e => { console.error(e); ctx.set(topBar('Error') + errorHTML(e.message)); });
 }
 window.addEventListener('hashchange', route);
 
@@ -233,7 +250,7 @@ function jumpTiles(mixes) {
 function paintJump(c, mixes) {
   if (!c.alive()) return;
   const tiles = jumpTiles(mixes), el = $('#hJump'); if (!el) return;
-  el.innerHTML = tiles.length ? `<div class="qgrid">${tiles.map((x, i) => `<button class="qtile" data-q="${i}">${x.likedcov ? `<div class="ph likedcov">${ic('heart', 26)}</div>` : x.thumb ? `<img src="${img(x.thumb)}" alt="">` : `<div class="ph">${ic('music')}</div>`}<span>${esc(x.title)}</span></button>`).join('')}</div>` : '';
+  el.innerHTML = tiles.length ? `<div class="qgrid" style="--qc:${tiles.length % 4 === 0 ? 4 : tiles.length % 3 === 0 ? 3 : 2}">${tiles.map((x, i) => `<button class="qtile" data-q="${i}">${x.likedcov ? `<div class="ph likedcov">${ic('heart', 26)}</div>` : x.thumb ? `<img src="${img(x.thumb)}" alt="">` : `<div class="ph">${ic('music')}</div>`}<span>${esc(x.title)}</span></button>`).join('')}</div>` : '';
   el.onclick = async e => {
     const b = e.target.closest('[data-q]'); if (!b) return;
     const x = tiles[+b.dataset.q];
@@ -335,7 +352,7 @@ async function viewSearch(c) {
     const songs = items.filter(x => x.type === 'song'), artists = items.filter(x => x.type === 'artist'),
       albums = items.filter(x => x.type === 'album'), pls = items.filter(x => x.type === 'playlist');
     if (!items.length) return emptyHTML('search', 'No results');
-    if (type === 'songs') return songRows(songs, reg('s', songs, 'one'));
+    if (type === 'songs') return trackTable(songs, reg('s', songs, 'one'));
     if (type === 'artists') return `<div class="grid">${cards(artists, reg('a', artists))}</div>`;
     if (type === 'albums') return `<div class="grid">${cards(albums, reg('b', albums))}</div>`;
     let h = '';
@@ -348,10 +365,12 @@ async function viewSearch(c) {
         <div class="tm"><small>Top result</small><div class="tn">${esc(top.title)}</div><div class="ts">${esc(circle ? (top.subtitle || 'Artist') : [top.artist, 'Song'].filter(Boolean).join(' • '))}</div></div>
         <span class="go">${ic(circle ? 'user' : 'play', 22)}</span></button>`;
     }
-    if (songs.length) h += section('Songs', songRows(songs.slice(0, 6), reg('s', songs, 'one')), songs.length > 6 ? '<small data-t="songs" role="button">Show all</small>' : '');
-    if (artists.length) h += section('Artists', hscroll(artists.slice(0, 10), reg('a', artists)), '<small data-t="artists" role="button">Show all</small>');
-    if (albums.length) h += section('Albums', hscroll(albums.slice(0, 10), reg('b', albums)), '<small data-t="albums" role="button">Show all</small>');
-    if (pls.length) h += section('Playlists', hscroll(pls.slice(0, 10), reg('p', pls)));
+    let left = '', right = '';
+    if (songs.length) left += section('Songs', songRows(songs.slice(0, 6), reg('s', songs, 'one')), songs.length > 6 ? '<small data-t="songs" role="button">Show all</small>' : '');
+    if (artists.length) right += section('Artists', hscroll(artists.slice(0, 10), reg('a', artists)), '<small data-t="artists" role="button">Show all</small>');
+    if (albums.length) right += section('Albums', hscroll(albums.slice(0, 10), reg('b', albums)), '<small data-t="albums" role="button">Show all</small>');
+    if (pls.length) right += section('Playlists', hscroll(pls.slice(0, 10), reg('p', pls)));
+    h += `<div class="res-grid"><div class="res-main">${left}</div><div class="res-side">${right}</div></div>`;
     return h;
   }
   inp.addEventListener('input', () => { q = inp.value; $('#qClear').hidden = !q; clearTimeout(deb); deb = setTimeout(run, q.trim().length > 1 ? 380 : 0); });
@@ -384,7 +403,7 @@ async function viewArtist(c) {
       <button class="btn tonal" data-act="shuffle">${ic('shuf')}Shuffle</button>
       <button class="iconbtn" data-act="share" aria-label="Share link">${ic('share')}</button>
     </div>
-    ${songs.length ? section('Songs', `<div id="aSongs">${songRows(songs, reg('as', songs, 'queue'))}</div>`, a.songsBrowse ? '<small id="aAll" role="button">Show all</small>' : '') : ''}
+    ${songs.length ? section('Songs', `<div id="aSongs">${trackTable(songs, reg('as', songs, 'queue'))}</div>`, a.songsBrowse ? '<small id="aAll" role="button">Show all</small>' : '') : ''}
     ${secs.map((s, k) => section(s.title, hscroll(s.items, reg('sec' + k, s.items, 'one')))).join('')}
     ${a.description ? section('About', `<div class="about clamp" id="aAbout">${esc(a.description)}</div><button class="chip" id="aMore" style="margin:4px">Read more</button>`) : ''}`);
   let all = songs;
@@ -394,7 +413,7 @@ async function viewArtist(c) {
     try {
       const list = (await cached(`/api/songs?b=${encodeURIComponent(a.songsBrowse)}&p=${encodeURIComponent(a.songsParams || '')}`)).map(T);
       if (!c.alive()) return;
-      all = list; $('#aSongs').innerHTML = songRows(list, reg('as', list, 'queue')); aAll.remove();
+      all = list; $('#aSongs').innerHTML = trackTable(list, reg('as', list, 'queue')); aAll.remove();
     } catch (e) { aAll.textContent = 'Show all'; snack(e.message); }
   };
   const more = $('#aMore'); if (more) more.onclick = () => { $('#aAbout').classList.toggle('clamp'); more.textContent = $('#aAbout').classList.contains('clamp') ? 'Read more' : 'Show less'; };
@@ -426,7 +445,7 @@ async function viewAlbum(c) {
   const tracks = al.tracks.map(T);
   const sub = [al.artistId ? `<button data-artist="${esc(al.artistId)}">${esc(al.artist)}</button>` : esc(al.artist), esc(al.year), `${tracks.length} songs${tracks.length ? ', ' + fmtLen(tracks.reduce((a, t) => a + secs(t.duration), 0)) : ''}`].filter(Boolean).join(' • ');
   c.set(tracksHeader({ title: al.title, thumb: al.thumb, sub, icon: 'album', buttons: listButtons() }) +
-    songRows(tracks, reg('t', tracks, 'queue'), { noAlbum: true }));
+    trackTable(tracks, reg('t', tracks, 'queue'), { noAlbum: true }));
   c.actions = act => listAction(act, tracks, al.title, ytURL('album', al.id));
   bindActions(c);
 }
@@ -437,7 +456,7 @@ async function viewForYou(c) {
   if (!m) { c.set(topBar('Mix') + emptyHTML('music', 'This mix is not available right now. It is rebuilt from your listening, so it may come back later.', '<a class="btn" href="#/">Home</a>')); return; }
   const tracks = m.tracks.map(T);
   c.set(tracksHeader({ title: m.title, thumb: m.thumb, sub: `${esc(m.subtitle)} • ${tracks.length} songs`, icon: 'music', buttons: listButtons().replace(/<button class="iconbtn" data-act="share"[^>]*>.*?<\/button>/, '') }) +
-    songRows(tracks, reg('t', tracks, 'queue')));
+    trackTable(tracks, reg('t', tracks, 'queue')));
   c.actions = act => listAction(act, tracks, m.title, null);
   bindActions(c);
 }
@@ -447,7 +466,7 @@ async function viewYT(c) {
   const tracks = (await cached(`/api/songs?b=${encodeURIComponent(c.id)}`)).map(T);
   if (!c.alive()) return;
   c.set(tracksHeader({ title: st.title || 'Playlist', thumb: st.thumb || (tracks[0] && tracks[0].thumb), sub: `${tracks.length} songs`, buttons: listButtons() }) +
-    (tracks.length ? songRows(tracks, reg('t', tracks, 'queue')) : emptyHTML('music', 'This playlist is empty or unavailable')));
+    (tracks.length ? trackTable(tracks, reg('t', tracks, 'queue')) : emptyHTML('music', 'This playlist is empty or unavailable')));
   c.actions = act => listAction(act, tracks, st.title || 'Playlist', ytURL('playlist', c.id));
   bindActions(c);
 }
@@ -490,22 +509,23 @@ async function viewPlaylist(c) {
   const tools = tracks.length > 8 ? `<div class="tools"><label class="search">${ic('search')}<input id="tf" type="search" placeholder="Search in this playlist" autocomplete="off" aria-label="Search in this playlist"></label>
       <div class="chips" id="tsort" role="tablist">${[['added', 'Added'], ['title', 'A–Z'], ['artist', 'Artist']].map(([k, n], i) => `<button class="chip${i ? '' : ' on'}" data-sort="${k}" role="tab">${n}</button>`).join('')}</div></div>` : '';
   c.set(tracksHeader({ title: p.name, thumb: isLiked ? '' : tracks[0] && tracks[0].thumb, liked: isLiked, icon: isLiked ? 'heart' : 'music', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}${tracks.length ? ' • ' + fmtLen(tracks.reduce((a, t) => a + secs(t.duration), 0)) : ''}`, buttons: listButtons(more).replace(/<button class="iconbtn" data-act="addpl"[^>]*>.*?<\/button>/, '') }) + tools +
-    (tracks.length ? `<div id="tl">${songRows(tracks, reg('t', tracks, 'queue'))}</div>` : emptyHTML(isLiked ? 'heart' : 'music', isLiked ? 'Songs you like will show up here' : 'No songs yet. Use the ⋮ menu on any song to add it here.')));
+    (tracks.length ? `<div id="tl">${trackTable(tracks, reg('t', tracks, 'queue'), { reorder: !isLiked })}</div>` : emptyHTML(isLiked ? 'heart' : 'music', isLiked ? 'Songs you like will show up here' : 'No songs yet. Use the ⋮ menu on any song to add it here.')));
   V.playlistId = p.id;
   let shown = tracks, sortKey = 'added', filt = '';
+  V.onReorder = (from, to) => { const [t] = tracks.splice(from, 1); tracks.splice(to, 0, t); paint(); };
   const paint = () => {
     const q = filt.trim().toLowerCase();
     shown = tracks.filter(t => !q || `${t.title} ${t.artist} ${t.album || ''}`.toLowerCase().includes(q));
     if (sortKey === 'title') shown = [...shown].sort((a, b) => a.title.localeCompare(b.title));
     if (sortKey === 'artist') shown = [...shown].sort((a, b) => (a.artist || '').localeCompare(b.artist || '') || a.title.localeCompare(b.title));
-    $('#tl').innerHTML = shown.length ? songRows(shown, reg('t', shown, 'queue')) : emptyHTML('search', 'No songs match your search');
+    $('#tl .trows').innerHTML = shown.length ? songRows(shown, reg('t', shown, 'queue'), { cols: true, reorder: !isLiked }) : emptyHTML('search', 'No songs match your search');
   };
   if (tools) {
     $('#tf').addEventListener('input', e => { filt = e.target.value; paint(); });
     $('#tsort').addEventListener('click', e => { const b = e.target.closest('[data-sort]'); if (!b) return; sortKey = b.dataset.sort; $$('#tsort .chip').forEach(x => x.classList.toggle('on', x === b)); paint(); });
   }
   c.actions = act => {
-    const tracks_ = shown;
+    const tracks_ = (V.lists.t && V.lists.t.items) || shown;
     if (act === 'rename') promptSheet('Rename playlist', p.name, 'Save', async name => { await send('PATCH', '/api/playlists/' + p.id, { name }); await refreshPlaylists(); route(); });
     else if (act === 'delete') confirmSheet('Delete playlist?', `“${p.name}” will be deleted. The songs themselves are not affected.`, 'Delete', async () => { await send('DELETE', '/api/playlists/' + p.id); await refreshPlaylists(); snack('Playlist deleted'); go('/library'); });
     else listAction(act, tracks_.length ? tracks_ : tracks, p.name, null);
@@ -699,41 +719,52 @@ function drawArea(s, el, W) {
 const secs = d => { const p = String(d || '').split(':').map(Number); return p.some(isNaN) ? 0 : p.reduce((a, x) => a * 60 + x, 0); };
 const fmtLen = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min` : `${Math.max(1, Math.round(s / 60))} min`;
 let showPlayed = false;
+const queueButtons = () => `<button class="chip" data-qsave ${queue.length ? '' : 'disabled'}>${ic('addq')}Save</button><button class="chip" data-qclear ${queue.length ? '' : 'disabled'}>${ic('close')}Clear</button>`;
 function viewQueue(c) {
   showPlayed = false;
-  c.set(`<div class="top"><h1>Queue</h1>
-      <button class="chip" id="qSave" ${queue.length ? '' : 'disabled'}>${ic('addq')}Save</button>
-      <button class="chip" id="qClear" ${queue.length ? '' : 'disabled'}>${ic('close')}Clear</button></div>
-    <div id="qSum" class="qsum"></div><div id="qList"></div>`);
-  renderQueueList.done = false; renderQueueList();
-  $('#qClear').onclick = () => { queue = cur() ? [cur()] : []; idx = queue.length ? 0 : -1; persist(); renderQueueList(); };
-  $('#qSave').onclick = () => playlistPicker(queue.map(T), 'Queue');
-  $('#qList').addEventListener('pointerdown', queueDrag);
-  $('#qList').addEventListener('click', e => { if (e.target.closest('[data-played]')) { showPlayed = !showPlayed; renderQueueList(); } else if (e.target.closest('[data-grip]')) e.stopPropagation(); }, true);
+  c.set(`<div class="top"><h1>Queue</h1>${queueButtons()}</div><div class="qsum"></div><div class="qlist"></div>`);
+  renderQueueList(true);
 }
-function renderQueueList() {
-  const el = $('#qList'); if (!el) return;
+// paints every queue list on screen (the Queue page and the desktop side panel)
+function renderQueueList(first) {
   reg('queue', queue, 'queue');
+  $$('.qlist').forEach(el => paintQueue(el, first));
+  $$('[data-qsave], [data-qclear]').forEach(b => { b.disabled = !queue.length; });
+}
+function paintQueue(el, first) {
+  const sum = el.previousElementSibling && el.previousElementSibling.classList.contains('qsum') ? el.previousElementSibling : null;
   const rows = (a, b) => { let s = ''; for (let i = a; i < b; i++) s += rowHTML(queue[i], 'queue', i, { grip: true }); return s; };
-  if (!queue.length) { el.innerHTML = emptyHTML('queue', 'The queue is empty', '<a class="btn" href="#/search">Find music</a>'); const s = $('#qSum'); if (s) s.textContent = ''; return; }
-  const cp = Math.max(idx, 0);
-  const left = queue.slice(cp + 1).reduce((a, t) => a + secs(t.duration), 0);
-  const sum = $('#qSum'); if (sum) sum.textContent = `${queue.length} song${queue.length === 1 ? '' : 's'}${queue.length > cp + 1 ? ` · ${fmtLen(left)} up next` : ''}${shuffle ? ' · shuffled' : ''}`;
+  if (!queue.length) { el.innerHTML = emptyHTML('queue', 'The queue is empty', '<a class="btn" href="#/search">Find music</a>'); if (sum) sum.textContent = ''; return; }
+  const cp = Math.max(idx, 0), left = queue.slice(cp + 1).reduce((a, t) => a + secs(t.duration), 0);
+  if (sum) sum.textContent = `${queue.length} song${queue.length === 1 ? '' : 's'}${queue.length > cp + 1 ? ` · ${fmtLen(left)} up next` : ''}${shuffle ? ' · shuffled' : ''}`;
   el.innerHTML = (cp > 0 ? `<button class="qhead played" data-played>${showPlayed ? 'Hide' : 'Show'} ${cp} played song${cp === 1 ? '' : 's'}${ic(showPlayed ? 'up' : 'down', 18)}</button>${showPlayed ? rows(0, cp) : ''}` : '') +
     `<h2 class="sec"><span>Now playing</span></h2>${rows(cp, cp + 1)}` +
     (queue.length > cp + 1 ? `<h2 class="sec"><span>Up next</span></h2>${rows(cp + 1, queue.length)}` : '');
-  const c = el.querySelector('.row.cur'); if (c && !renderQueueList.done) { renderQueueList.done = true; if (cp > 2) c.scrollIntoView({ block: 'start' }); }
+  const c = el.querySelector('.row.cur');
+  if (c && first && cp > 2) {   // bring "Now playing" to the top once the layout has settled
+    requestAnimationFrame(() => {
+      const sc = el.closest('.qp-body');
+      if (sc) sc.scrollTop += c.getBoundingClientRect().top - sc.getBoundingClientRect().top - 44; else c.scrollIntoView({ block: 'start' });
+    });
+  }
 }
+document.addEventListener('pointerdown', e => { if (e.target.closest('.qlist [data-grip]')) queueDrag(e); });
+document.addEventListener('click', e => {
+  if (e.target.closest('.qlist [data-grip]')) { e.stopPropagation(); return; }
+  if (e.target.closest('[data-played]')) { showPlayed = !showPlayed; renderQueueList(); e.stopPropagation(); }
+  else if (e.target.closest('[data-qclear]')) { queue = cur() ? [cur()] : []; idx = queue.length ? 0 : -1; persist(); renderQueueList(); e.stopPropagation(); }
+  else if (e.target.closest('[data-qsave]')) { playlistPicker(queue.map(T), 'Queue'); e.stopPropagation(); }
+}, true);
 function moveQueueItem(from, to) {
   if (from === to || from < 0 || to < 0 || from >= queue.length || to >= queue.length) return;
   const [it] = queue.splice(from, 1); queue.splice(to, 0, it);
   if (from === idx) idx = to; else if (from < idx && to >= idx) idx--; else if (from > idx && to <= idx) idx++;
   persist(); renderQueueList(); updateNow();
 }
-// drag a row by its grip (mouse or touch) to reorder the queue
-function queueDrag(e) {
-  const grip = e.target.closest('[data-grip]'); if (!grip) return;
-  const list = $('#qList'), row = grip.closest('.row'), scroller = $('#content');
+// drag a row by its grip (mouse or touch); onDrop(from, to) is called with the data-i positions
+function queueDrag(e) { const grip = e.target.closest('[data-grip]'); if (grip) dragRows(e, grip, moveQueueItem); }
+function dragRows(e, grip, onDrop) {
+  const list = grip.closest('.qlist, .trows'), row = grip.closest('.row'), scroller = list.closest('.qp-body') || $('#content');
   const rows = [...list.querySelectorAll('.row[data-id]')], rects = rows.map(r => r.getBoundingClientRect());
   const me = rows.indexOf(row), from = +row.dataset.i, h = rects[me].height, y0 = e.clientY, s0 = scroller.scrollTop;
   e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId);
@@ -756,7 +787,7 @@ function queueDrag(e) {
   const end = () => {
     cancelAnimationFrame(raf); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
     rows.forEach(r => { r.style.transform = ''; }); row.classList.remove('dragging');
-    moveQueueItem(from, to);
+    onDrop(from, to);
   };
   grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
 }
@@ -766,6 +797,7 @@ function queueDrag(e) {
 // ============================================================================
 async function refreshPlaylists() {
   try { playlists = await api('/api/playlists'); } catch (e) { console.error(e); }
+  document.dispatchEvent(new Event('mw:playlists'));
 }
 async function loadLiked() {
   try {
@@ -903,7 +935,7 @@ async function viewOffline(c) {
   if (!c.alive()) return;
   c.set(tracksHeader({ title: 'Offline songs', thumb: tracks[0] && tracks[0].thumb, icon: 'cloud', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}${use ? ' • ' + use : ''}`,
       buttons: `<button class="btn" data-act="play">${ic('play')}Play</button><button class="btn tonal" data-act="shuffle">${ic('shuf')}Shuffle</button>${tracks.length ? `<button class="iconbtn" data-act="clearoff" aria-label="Remove all">${ic('del')}</button>` : ''}` }) +
-    (tracks.length ? songRows(tracks, reg('t', tracks, 'queue')) : emptyHTML('cloud', 'Songs you save for offline show up here.<br>Use the ⋮ menu on a song, or the cloud button on a playlist or album.')));
+    (tracks.length ? trackTable(tracks, reg('t', tracks, 'queue')) : emptyHTML('cloud', 'Songs you save for offline show up here.<br>Use the ⋮ menu on a song, or the cloud button on a playlist or album.')));
   c.actions = act => {
     if (act === 'clearoff') confirmSheet('Remove all offline songs?', 'They stay in your library, only the copies saved on this device are removed.', 'Remove', () => removeOffline(Object.keys(offTracks)));
     else listAction(act, tracks, 'Offline songs', null);
@@ -922,6 +954,7 @@ function settingsSheet() {
       ${switchRow('fade', 'Smooth transitions', 'Fade out the end of a song and fade the next one in', fadeOn)}
       ${switchRow('level', 'Volume leveling', 'Evens out loud and quiet songs. Experimental: on iPhone it may stop in the background', levelOn)}
       <button class="swrow" data-sw="offline"><span><b>Offline songs</b><i>${Object.keys(offTracks).length} saved on this device</i></span>${ic('cloud')}</button>
+      ${window.canInstallApp && window.canInstallApp() ? `<button class="swrow" data-sw="install"><span><b>Install as an app</b><i>Its own window, with media keys and a shortcut</i></span>${ic('dl')}</button>` : ''}
       <button class="swrow" data-sw="speed"><span><b>Playback speed</b><i>${rate === 1 ? 'Normal' : rate + '×'}</i></span>${ic('speed')}</button>
       <h4 class="sethead">Appearance</h4>
       <div class="seg3" role="radiogroup" aria-label="Theme">${[['system', 'System'], ['dark', 'Dark'], ['light', 'Light']].map(([k, n]) => `<button data-sw="theme:${k}" role="radio" aria-checked="${themePref === k}" class="${themePref === k ? 'on' : ''}">${n}</button>`).join('')}</div>
@@ -932,6 +965,7 @@ function settingsSheet() {
       if (k === 'fade') { fadeOn = !fadeOn; store.set('mw.fade', fadeOn); if (!fadeOn) audio.volume = baseVol(); paint(); }
       else if (k === 'level') { setLeveling(!levelOn); paint(); }
       else if (k === 'speed') speedSheet();
+      else if (k === 'install') { closeSheet(); window.installApp(); }
       else if (k === 'offline') { closeSheet(); go('/offline'); }
       else if (k.startsWith('theme:')) { themePref = k.slice(6); store.set('mw.theme', themePref); applyTheme(); paint(); }
       else if (k.startsWith('accent:')) { accentPref = k.slice(7); store.set('mw.accent', accentPref); paintAccent(); paint(); }
@@ -1364,6 +1398,7 @@ function updateNow() {
   $('#dDl').innerHTML = ic(dlIcon); $('#dDl').style.color = have ? 'var(--ok)' : st === 'err' ? 'var(--err)' : '';
   for (const sel of ['#shuf', '#dShuf']) { $(sel).innerHTML = ic('shuf'); $(sel).classList.toggle('on', shuffle); $(sel).style.color = shuffle ? 'var(--accent)' : ''; }
   for (const sel of ['#rep', '#dRep']) { $(sel).innerHTML = ic(repeat === 2 ? 'rep1' : 'rep'); $(sel).classList.toggle('on', repeat > 0); $(sel).style.color = repeat ? 'var(--accent)' : ''; }
+  document.dispatchEvent(new Event('mw:now'));
   // rows in the current view
   $$('#view .row[data-id]').forEach(r => {
     const id = r.dataset.id, l = r.dataset.l, i = +r.dataset.i;
@@ -1487,7 +1522,7 @@ document.addEventListener('keydown', e => {
   else if (!onRange && !e.metaKey && !e.ctrlKey && !e.altKey) {
     if (e.key === 'ArrowRight') { e.preventDefault(); if (audio.duration) audio.currentTime = Math.min(audio.duration, audio.currentTime + 5); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5); }
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.target.closest && e.target.closest('.row'))) {
       e.preventDefault(); const v = $('#vol'); v.value = Math.max(0, Math.min(100, +v.value + (e.key === 'ArrowUp' ? 5 : -5))); v.dispatchEvent(new Event('input'));
     }
     else if (e.key === 'm') { const vi = $('.volic'); if (vi) vi.click(); else audio.muted = !audio.muted; snack(audio.muted ? 'Muted' : 'Unmuted'); }
@@ -1500,7 +1535,7 @@ document.addEventListener('keydown', e => {
 });
 function shortcutsSheet() {
   const k = [['Space', 'Play / pause'], ['← →', 'Seek 5 seconds'], ['Shift + ← →', 'Previous / next song'], ['↑ ↓', 'Volume'], ['M', 'Mute'], ['L', 'Like the current song'],
-    ['S', 'Shuffle'], ['R', 'Repeat'], ['/', 'Search'], ['Esc', 'Close'], ['?', 'This list']];
+    ['S', 'Shuffle'], ['R', 'Repeat'], ['Ctrl + K', 'Command palette'], ['Q', 'Queue panel'], ['/', 'Search'], ['Ctrl + F', 'Filter this list'], ['Ctrl + click', 'Select songs'], ['Shift + click', 'Select a range'], ['Ctrl + A', 'Select all'], ['Esc', 'Close'], ['?', 'This list']];
   openSheet(`<h3>Keyboard shortcuts</h3><div class="keys">${k.map(([a, b]) => `<div><kbd>${a}</kbd><span>${b}</span></div>`).join('')}</div>`);
   $('#sheet').onclick = null;
 }
@@ -1521,9 +1556,9 @@ for (const id of ['fpDl', 'dDl']) $('#' + id).addEventListener('click', () => { 
 $('#fpMore').onclick = () => { if (cur()) trackMenu(cur(), { player: true }); };
 $('#dSleep').onclick = sleepSheet;
 $('#fpPl').onclick = () => { if (cur()) playlistPicker([cur()], cur().title); };
-$('#fpQueue').onclick = () => { closeFp(); go('/queue'); };
-$('#fpNext').onclick = () => { closeFp(); go('/queue'); };
-$('#dQueue').onclick = () => go('/queue');
+const openQueue = () => { closeFp(); if (window.toggleQueuePanel && matchMedia('(min-width: 900px)').matches) window.toggleQueuePanel(true); else go('/queue'); };
+$('#fpQueue').onclick = openQueue; $('#fpNext').onclick = openQueue;
+$('#dQueue').onclick = () => { if (window.toggleQueuePanel) window.toggleQueuePanel(); else go('/queue'); };
 $('#fpA').onclick = () => { const t = cur(); if (t && t.artistId) { closeFp(); go('/artist/' + t.artistId); } };
 $('#miniInfo').onclick = openFp; $('#miniInfo').addEventListener('keydown', e => { if (e.key === 'Enter') openFp(); });
 $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;

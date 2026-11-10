@@ -440,6 +440,20 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 				return
 			}
 			writeJSON(w, 200, map[string]int{"added": n})
+		case len(parts) == 2 && parts[1] == "move" && r.Method == http.MethodPost:
+			var in struct {
+				TrackID string `json:"trackId"`
+				To      int    `json:"to"`
+			}
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in) != nil || !idRe.MatchString(in.TrackID) {
+				apiErr(w, 400, "invalid request")
+				return
+			}
+			if err := pls.MoveTrack(id, in.TrackID, in.To); err != nil {
+				apiErr(w, 400, err.Error())
+				return
+			}
+			writeJSON(w, 200, map[string]string{"ok": "1"})
 		case len(parts) == 3 && parts[1] == "tracks" && r.Method == http.MethodDelete:
 			if err := pls.RemoveTrack(id, parts[2]); err != nil {
 				apiErr(w, 404, err.Error())

@@ -331,6 +331,40 @@ func (s *PlaylistStore) AddTracks(id string, tracks []Track) (int, error) {
 	return 0, nil
 }
 
+// MoveTrack puts a song at a new position (0 = first). Liked songs keep their order: it is the order you liked them in.
+func (s *PlaylistStore) MoveTrack(id, trackID string, to int) error {
+	if id == likedID {
+		return errors.New("Liked songs can't be reordered")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.find(id)
+	if p == nil {
+		return errors.New("playlist not found")
+	}
+	from := -1
+	for i, t := range p.Tracks {
+		if t.ID == trackID {
+			from = i
+			break
+		}
+	}
+	if from < 0 {
+		return errors.New("song not in this playlist")
+	}
+	if to < 0 || to >= len(p.Tracks) {
+		return errors.New("position out of range")
+	}
+	if from == to {
+		return nil
+	}
+	t := p.Tracks[from]
+	p.Tracks = append(p.Tracks[:from], p.Tracks[from+1:]...)
+	p.Tracks = append(p.Tracks[:to], append([]Track{t}, p.Tracks[to:]...)...)
+	p.Updated = time.Now()
+	return s.save()
+}
+
 func (s *PlaylistStore) RemoveTrack(id, trackID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

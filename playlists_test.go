@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPlaylistStore(t *testing.T) {
 	dir := t.TempDir()
@@ -88,5 +91,49 @@ func TestAutoLikeRespectsUnlikes(t *testing.T) {
 	// liking it again by hand clears the suppression
 	if n, _ := s2.AddTracks(likedID, []Track{a}); n != 1 || s2.IsSuppressed(a.ID) {
 		t.Fatal("a deliberate like must override the earlier un-like")
+	}
+}
+
+func TestMoveTrack(t *testing.T) {
+	dir := t.TempDir()
+	pls, err := NewPlaylistStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(c string) Track { return Track{ID: strings.Repeat(c, 11), Title: c, Artist: "X"} }
+	sum, _ := pls.Create("Mix")
+	pls.AddTracks(sum.ID, []Track{mk("a"), mk("b"), mk("c"), mk("d")})
+	order := func() string {
+		p, _ := pls.Get(sum.ID)
+		s := ""
+		for _, tr := range p.Tracks {
+			s += tr.Title
+		}
+		return s
+	}
+	if err := pls.MoveTrack(sum.ID, mk("d").ID, 0); err != nil || order() != "dabc" {
+		t.Fatalf("move last to first: %v %s", err, order())
+	}
+	if err := pls.MoveTrack(sum.ID, mk("d").ID, 3); err != nil || order() != "abcd" {
+		t.Fatalf("move first to last: %v %s", err, order())
+	}
+	if err := pls.MoveTrack(sum.ID, mk("b").ID, 2); err != nil || order() != "acbd" {
+		t.Fatalf("move middle: %v %s", err, order())
+	}
+	for _, bad := range []int{-1, 4, 99} {
+		if err := pls.MoveTrack(sum.ID, mk("a").ID, bad); err == nil {
+			t.Fatalf("position %d must be rejected", bad)
+		}
+	}
+	if err := pls.MoveTrack(sum.ID, mk("z").ID, 1); err == nil {
+		t.Fatal("unknown song must be rejected")
+	}
+	if err := pls.MoveTrack(likedID, mk("a").ID, 0); err == nil {
+		t.Fatal("Liked songs must not be reordered")
+	}
+	// it survives a restart
+	again, _ := NewPlaylistStore(dir)
+	if p, _ := again.Get(sum.ID); len(p.Tracks) != 4 || p.Tracks[1].Title != "c" {
+		t.Fatalf("order not saved: %+v", p.Tracks)
 	}
 }

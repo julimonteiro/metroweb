@@ -125,6 +125,7 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
 | `GET /api/status` · `POST /api/status/update-ytdlp` · `POST /api/backup/now` · `GET /api/backup/download` | Server status, update yt-dlp, backups |
 | `POST /api/import/list` · `GET /api/import/list?id=` | Import a pasted list / CSV as a playlist (async job) |
+| `POST /api/playlists/{id}/move` | Move a song to a new position in a playlist (`{trackId, to}`) |
 | `GET /api/review?year=&tz=` · `POST /api/review/playlist?year=&tz=` | The year in review (heatmap, highlights, persona...) / make the "Top Songs" playlist |
 | `GET /api/mixes?tz=` | Mixes for you (on repeat, rewind, hidden gems, time of day, artists, genres) |
 | `GET /api/plays/summary` | Play count and last play time per song (feeds the smart shuffle) |
@@ -194,7 +195,20 @@ Lyrics come from [LRCLIB](https://lrclib.net), a free open lyrics database; only
 
 ## Shortcuts (desktop)
 
-Space play/pause · ←/→ seek 5 s · Shift+←/→ previous/next · ↑/↓ volume · `M` mute · `L` like · `S` shuffle · `R` repeat · `/` search · `?` shows this list · Esc closes the player and menus.
+Space play/pause · ←/→ seek 5 s · Shift+←/→ previous/next · ↑/↓ volume · `M` mute · `L` like · `S` shuffle · `R` repeat · `Q` queue panel · **Ctrl/Cmd+K** command palette · `/` search · **Ctrl+F** filter the list · **Ctrl/Cmd+click** and **Shift+click** select songs · **Ctrl+A** select all · `?` shows this list · Esc closes the player, menus and the selection.
+
+## On a computer
+
+The layout grows with the screen and adds desktop-only tools:
+
+- **Command palette (Ctrl/Cmd+K):** type to run an action (play, shuffle, sleep timer, switch theme, go to a page...), open a playlist, or find a song, artist or album. Enter runs it, Shift+Enter adds a song to the queue (or plays a playlist).
+- **Queue side panel (`Q` or the queue button):** the queue stays open next to what you browse, with the same drag-to-reorder as the Queue page.
+- **Songs as a table:** title, artist, album and duration columns; click a header to sort (again to reverse, a third time to restore the order). A play button shows on hover.
+- **Select several songs:** Ctrl/Cmd+click, Shift+click for a range, Ctrl+A for all. A bar offers Play, Play next, Queue, Add to playlist, Download, Offline and (in a playlist) Remove.
+- **Reorder a playlist** by dragging a row's grip (not for Liked songs, whose order is when you liked them).
+- **Sidebar playlists:** your playlists live in the sidebar; drag songs (or a selection) onto one to add them. Drag the sidebar's edge to resize it.
+- **Small things:** the seek bar shows the time under the pointer, the mouse wheel changes the volume, the page remembers where you were scrolled when you go back, and arrow keys move between songs.
+- **Install as an app** (Settings, or the palette) and **pop out the mini player** into a small always-on-top window (Chrome/Edge; the button is in the bottom bar).
 
 ## Also handy
 

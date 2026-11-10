@@ -1,14 +1,38 @@
 {
   "name": "metroweb",
   "short_name": "metroweb",
-  "description": "Cliente de YouTube Music com download pra biblioteca do Jellyfin",
+  "description": "A self-hosted YouTube Music client with downloads to your Jellyfin library",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
   "background_color": "#141218",
   "theme_color": "#141218",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "/",
+  "shortcuts": [
+    {
+      "name": "Search",
+      "url": "/#/search"
+    },
+    {
+      "name": "Library",
+      "url": "/#/library"
+    },
+    {
+      "name": "Queue",
+      "url": "/#/queue"
+    }
   ]
 }
