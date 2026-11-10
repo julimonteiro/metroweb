@@ -123,11 +123,12 @@ function stIcon(id) {
   return '';
 }
 
+const FINE = window.matchMedia && matchMedia('(pointer: fine)').matches;
 // A song row. o.num shows a track number instead of artwork.
 function rowHTML(t, l, i, o = {}) {
   const c = cur(), isCur = c && c.id === t.id && (l !== 'queue' || i === idx);
   const sub = [t.artist, o.noAlbum ? '' : t.album].filter(Boolean).join(' • ');
-  return `<div class="row${o.grip ? ' hasgrip' : ''}${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
+  return `<div ${!o.grip && FINE ? 'draggable="true" ' : ''}class="row${o.grip ? ' hasgrip' : ''}${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
     ${o.num ? `<span class="num">${o.num}</span>` : `<img class="art" loading="lazy" src="${img(t.thumb)}" alt="">`}
     <span class="eq"><i></i><i></i><i></i></span>
     <div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${stIcon(t.id)}<span>${esc(sub)}</span></div></div>
@@ -184,8 +185,9 @@ const ROUTES = [
   [/^\/mix\/([\w-]+)$/, 'mix', viewForYou],
   [/^\/status$/, 'status', viewStatus],
   [/^\/offline$/, 'offline', viewOffline],
+  [/^\/wrapped$/, 'wrapped', viewWrapped],
 ];
-const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home', offline: 'library' };
+const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home', offline: 'library', wrapped: 'stats' };
 
 function route() {
   const { path, params } = parseHash();
@@ -328,6 +330,15 @@ async function viewSearch(c) {
     if (type === 'artists') return `<div class="grid">${cards(artists, reg('a', artists))}</div>`;
     if (type === 'albums') return `<div class="grid">${cards(albums, reg('b', albums))}</div>`;
     let h = '';
+    const qf = q.trim().toLowerCase(), s0 = songs[0], nm = a => (a.title || '').toLowerCase();
+    const a0 = artists.find(a => nm(a) === qf) || artists.find(a => nm(a).startsWith(qf)) || artists.find(a => qf.length > 2 && nm(a).includes(qf)) || (!s0 ? artists[0] : null);
+    const top = a0 || s0;
+    if (top) {
+      const circle = top.type === 'artist';
+      h += `<button class="topres" data-card data-l="${reg('top', [top])}" data-i="0">${top.thumb ? `<img class="${circle ? 'round' : ''}" src="${img(top.thumb)}" alt="">` : `<div class="ph">${ic(circle ? 'user' : 'music', 40)}</div>`}
+        <div class="tm"><small>Top result</small><div class="tn">${esc(top.title)}</div><div class="ts">${esc(circle ? (top.subtitle || 'Artist') : [top.artist, 'Song'].filter(Boolean).join(' • '))}</div></div>
+        <span class="go">${ic(circle ? 'user' : 'play', 22)}</span></button>`;
+    }
     if (songs.length) h += section('Songs', songRows(songs.slice(0, 6), reg('s', songs, 'one')), songs.length > 6 ? '<small data-t="songs" role="button">Show all</small>' : '');
     if (artists.length) h += section('Artists', hscroll(artists.slice(0, 10), reg('a', artists)), '<small data-t="artists" role="button">Show all</small>');
     if (albums.length) h += section('Albums', hscroll(albums.slice(0, 10), reg('b', albums)), '<small data-t="albums" role="button">Show all</small>');
@@ -404,7 +415,7 @@ async function viewAlbum(c) {
   const al = await cached('/api/album/' + c.id);
   if (!c.alive()) return;
   const tracks = al.tracks.map(T);
-  const sub = [al.artistId ? `<button data-artist="${esc(al.artistId)}">${esc(al.artist)}</button>` : esc(al.artist), esc(al.year), `${tracks.length} songs`].filter(Boolean).join(' • ');
+  const sub = [al.artistId ? `<button data-artist="${esc(al.artistId)}">${esc(al.artist)}</button>` : esc(al.artist), esc(al.year), `${tracks.length} songs${tracks.length ? ', ' + fmtLen(tracks.reduce((a, t) => a + secs(t.duration), 0)) : ''}`].filter(Boolean).join(' • ');
   c.set(tracksHeader({ title: al.title, thumb: al.thumb, sub, icon: 'album', buttons: listButtons() }) +
     songRows(tracks, reg('t', tracks, 'queue'), { noAlbum: true }));
   c.actions = act => listAction(act, tracks, al.title, ytURL('album', al.id));
@@ -469,7 +480,7 @@ async function viewPlaylist(c) {
   const more = isLiked ? '' : `<button class="iconbtn" data-act="rename" aria-label="Rename">${ic('edit')}</button><button class="iconbtn" data-act="delete" aria-label="Delete playlist">${ic('del')}</button>`;
   const tools = tracks.length > 8 ? `<div class="tools"><label class="search">${ic('search')}<input id="tf" type="search" placeholder="Search in this playlist" autocomplete="off" aria-label="Search in this playlist"></label>
       <div class="chips" id="tsort" role="tablist">${[['added', 'Added'], ['title', 'A–Z'], ['artist', 'Artist']].map(([k, n], i) => `<button class="chip${i ? '' : ' on'}" data-sort="${k}" role="tab">${n}</button>`).join('')}</div></div>` : '';
-  c.set(tracksHeader({ title: p.name, thumb: isLiked ? '' : tracks[0] && tracks[0].thumb, liked: isLiked, icon: isLiked ? 'heart' : 'music', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}`, buttons: listButtons(more).replace(/<button class="iconbtn" data-act="addpl"[^>]*>.*?<\/button>/, '') }) + tools +
+  c.set(tracksHeader({ title: p.name, thumb: isLiked ? '' : tracks[0] && tracks[0].thumb, liked: isLiked, icon: isLiked ? 'heart' : 'music', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}${tracks.length ? ' • ' + fmtLen(tracks.reduce((a, t) => a + secs(t.duration), 0)) : ''}`, buttons: listButtons(more).replace(/<button class="iconbtn" data-act="addpl"[^>]*>.*?<\/button>/, '') }) + tools +
     (tracks.length ? `<div id="tl">${songRows(tracks, reg('t', tracks, 'queue'))}</div>` : emptyHTML(isLiked ? 'heart' : 'music', isLiked ? 'Songs you like will show up here' : 'No songs yet. Use the ⋮ menu on any song to add it here.')));
   V.playlistId = p.id;
   let shown = tracks, sortKey = 'added', filt = '';
@@ -543,7 +554,7 @@ const STAT_RANGES = [['30d', '30 days'], ['90d', '3 months'], ['365d', 'Year'], 
 
 async function viewStats(c) {
   let range = store.get('mw.statsRange', '90d'), timer;
-  c.set(`<div class="top"><h1>Stats</h1>${avatarBtn()}</div>
+  c.set(`<div class="top"><h1>Stats</h1><a class="chip" href="#/wrapped">${ic('stats', 18)}Year in music</a>${avatarBtn()}</div>
     <div class="chips" id="srange" role="tablist">${STAT_RANGES.map(([k, n]) => `<button class="chip${k === range ? ' on' : ''}" data-r="${k}" role="tab">${n}</button>`).join('')}</div>
     <div id="sbody">${`<div class="tiles">${'<div class="tile skeleton"><div class="l1"></div><div class="l2"></div></div>'.repeat(5)}</div>`}</div>`);
   async function load() {
@@ -903,7 +914,9 @@ function settingsSheet() {
       ${switchRow('level', 'Volume leveling', 'Evens out loud and quiet songs. Experimental: on iPhone it may stop in the background', levelOn)}
       <button class="swrow" data-sw="offline"><span><b>Offline songs</b><i>${Object.keys(offTracks).length} saved on this device</i></span>${ic('cloud')}</button>
       <button class="swrow" data-sw="speed"><span><b>Playback speed</b><i>${rate === 1 ? 'Normal' : rate + '×'}</i></span>${ic('speed')}</button>
-      ${appearanceHTML ? appearanceHTML() : ''}`);
+      <h4 class="sethead">Appearance</h4>
+      <div class="seg3" role="radiogroup" aria-label="Theme">${[['system', 'System'], ['dark', 'Dark'], ['light', 'Light']].map(([k, n]) => `<button data-sw="theme:${k}" role="radio" aria-checked="${themePref === k}" class="${themePref === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="swatches" role="radiogroup" aria-label="Accent colour"><button class="swatch art${accentPref === 'art' ? ' on' : ''}" data-sw="accent:art" title="From the artwork" aria-label="Accent from artwork"></button>${ACCENTS.map(([n, h]) => `<button class="swatch${accentPref === String(h) ? ' on' : ''}" data-sw="accent:${h}" title="${n}" aria-label="${n}" style="background:hsl(${h} 62% 60%)"></button>`).join('')}</div>`);
     $('#sheet').onclick = e => {
       const b = e.target.closest('[data-sw]'); if (!b) return;
       const k = b.dataset.sw;
@@ -911,12 +924,12 @@ function settingsSheet() {
       else if (k === 'level') { setLeveling(!levelOn); paint(); }
       else if (k === 'speed') speedSheet();
       else if (k === 'offline') { closeSheet(); go('/offline'); }
-      else if (appearanceClick) appearanceClick(k, paint);
+      else if (k.startsWith('theme:')) { themePref = k.slice(6); store.set('mw.theme', themePref); applyTheme(); paint(); }
+      else if (k.startsWith('accent:')) { accentPref = k.slice(7); store.set('mw.accent', accentPref); paintAccent(); paint(); }
     };
   };
   paint();
 }
-const appearanceHTML = null, appearanceClick = null;
 
 // ---- smooth transitions: fade the end of a song out and the start of the next in
 let fadeOn = store.get('mw.fade', false), sleeping = false;
@@ -1108,7 +1121,7 @@ async function accountSheet() {
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
     </form>
     <div class="syncline" id="syncLine"></div>
-    <div class="acclinks"><button data-act="settings">${ic('speed')}Settings</button><button data-go="/status">${ic('stats')}Server status</button></div>`);
+    <div class="acclinks"><button data-go="/wrapped">${ic('stats')}Your year in music</button><button data-act="settings">${ic('speed')}Settings</button><button data-go="/status">${ic('stats')}Server status</button></div>`);
   if (jfEnabled) fillSync();
   $('#sheet').onclick = e => { const g = e.target.closest('[data-go]'); if (g) { closeSheet(); go(g.dataset.go); } else if (e.target.closest('[data-act="settings"]')) settingsSheet(); };
   $('#logout').onclick = async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; };
@@ -1271,12 +1284,29 @@ async function themeFrom(url) {
       }
       c = toHSL(r / w, g / w, b / w); colorCache.set(url, c);
     }
-    const [h, s] = c, sat = Math.min(Math.max(s, .25), .75), root = document.documentElement.style;
-    root.setProperty('--accent', `hsl(${h} ${sat * 100}% 80%)`);
-    root.setProperty('--on-accent', `hsl(${h} ${sat * 100}% 14%)`);
-    root.setProperty('--glow', `hsl(${h} ${sat * 55}% 24%)`);
+    lastHS = c; paintAccent();
   } catch {}
 }
+// theme (dark / light / system) and accent (from the artwork, or a fixed colour)
+const ACCENTS = [['Violet', 262], ['Blue', 210], ['Teal', 172], ['Green', 120], ['Amber', 36], ['Pink', 330], ['Red', 5]];
+let themePref = store.get('mw.theme', 'dark'), accentPref = store.get('mw.accent', 'art'), lastHS = null;
+const lightQ = window.matchMedia ? matchMedia('(prefers-color-scheme: light)') : { matches: false };
+const isLight = () => themePref === 'light' || (themePref === 'system' && lightQ.matches);
+function paintAccent() {
+  const root = document.documentElement.style, light = isLight();
+  let h, s;
+  if (accentPref !== 'art') { h = +accentPref; s = .62; } else if (lastHS) { h = lastHS[0]; s = Math.min(Math.max(lastHS[1], .25), .75); } else { h = 262; s = .9; }
+  root.setProperty('--accent', light ? `hsl(${h} ${s * 100}% 40%)` : `hsl(${h} ${s * 100}% 80%)`);
+  root.setProperty('--on-accent', light ? '#ffffff' : `hsl(${h} ${s * 100}% 14%)`);
+  root.setProperty('--glow', light ? `hsl(${h} ${s * 70}% 90%)` : `hsl(${h} ${s * 55}% 24%)`);
+}
+function applyTheme() {
+  document.documentElement.dataset.theme = isLight() ? 'light' : 'dark';
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = isLight() ? '#fef7ff' : '#141218';
+  paintAccent();
+}
+if (lightQ.addEventListener) lightQ.addEventListener('change', () => { if (themePref === 'system') applyTheme(); });
+applyTheme();
 function toHSL(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
@@ -1342,6 +1372,105 @@ function itemOf(el) {
   const l = el.dataset.l, i = +el.dataset.i, L = V.lists[l];
   return L ? { it: L.items[i], mode: L.mode, items: L.items, i, l } : null;
 }
+// ---- right click (or long press) on a song opens its menu
+function menuFor(row) {
+  const r = itemOf(row); if (!r || !r.it) return;
+  const ctx = {};
+  if (r.l === 'queue') ctx.queueIndex = r.i;
+  if (routeName === 'playlist') ctx.playlistId = V.playlistId;
+  trackMenu(r.it, ctx);
+}
+document.addEventListener('contextmenu', e => {
+  const row = e.target.closest('#view .row[data-id]'); if (!row) return;
+  e.preventDefault(); menuFor(row);
+});
+(() => {
+  let timer = null, sx = 0, sy = 0, fired = false;
+  document.addEventListener('touchstart', e => {
+    const row = e.target.closest('#view .row[data-id]'); fired = false; if (!row || e.target.closest('[data-grip]')) return;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    timer = setTimeout(() => { fired = true; if (navigator.vibrate) navigator.vibrate(12); menuFor(row); }, 550);
+  }, { passive: true });
+  document.addEventListener('touchmove', e => { if (timer && (Math.abs(e.touches[0].clientX - sx) > 8 || Math.abs(e.touches[0].clientY - sy) > 8)) { clearTimeout(timer); timer = null; } }, { passive: true });
+  const stop = () => { clearTimeout(timer); timer = null; };
+  document.addEventListener('touchend', e => { stop(); if (fired) { e.preventDefault(); fired = false; } });
+  document.addEventListener('touchcancel', stop);
+})();
+
+// ---- drag a song onto a playlist (desktop): a tray with the targets appears while dragging
+(() => {
+  let tray = null, dragged = null;
+  const build = () => {
+    tray = document.createElement('div'); tray.id = 'droptray';
+    const targets = [{ k: 'queue', n: 'Queue', i: 'queue' }, { k: 'next', n: 'Play next', i: 'playnext' }, { k: 'pl:liked', n: 'Liked songs', i: 'heart' },
+      ...playlists.filter(p => p.id !== 'liked').slice(0, 8).map(p => ({ k: 'pl:' + p.id, n: p.name, i: 'lib' }))];
+    tray.innerHTML = targets.map(t => `<div class="dt" data-k="${esc(t.k)}" data-n="${esc(t.n)}">${ic(t.i, 20)}<span>${esc(t.n)}</span></div>`).join('');
+    document.body.appendChild(tray);
+    tray.addEventListener('dragover', e => { const d = e.target.closest('.dt'); if (d) { e.preventDefault(); $$('#droptray .dt').forEach(x => x.classList.toggle('over', x === d)); } });
+    tray.addEventListener('dragleave', e => { if (!tray.contains(e.relatedTarget)) $$('#droptray .dt').forEach(x => x.classList.remove('over')); });
+    tray.addEventListener('drop', e => {
+      const d = e.target.closest('.dt'); if (!d || !dragged) return; e.preventDefault();
+      const t = dragged, k = d.dataset.k;
+      if (k === 'queue') { queue.push(T(t)); persist(); renderQueueList(); snack('Added to queue'); }
+      else if (k === 'next') { queue.splice(idx + 1, 0, T(t)); persist(); renderQueueList(); snack('Playing next'); }
+      else addToPlaylist(k.slice(3), [t], d.dataset.n);
+    });
+  };
+  const end = () => { dragged = null; if (tray) { tray.remove(); tray = null; } };
+  document.addEventListener('dragstart', e => {
+    const row = e.target.closest && e.target.closest('#view .row[data-id]'); if (!row) return;
+    const r = itemOf(row); if (!r || !r.it) return;
+    dragged = r.it; e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', r.it.title || '');
+    build(); requestAnimationFrame(() => tray && tray.classList.add('show'));
+  });
+  document.addEventListener('dragend', end);
+  document.addEventListener('drop', end);
+})();
+
+// ---- your year in music
+async function viewWrapped(c) {
+  c.set(topBar('Your year in music') + `<div class="wrap">${skeletonRows(4)}</div>`);
+  let s; try { s = await api(`/api/stats?range=365d&tz=${-new Date().getTimezoneOffset()}`); } catch (e) { c.set(topBar('Your year in music') + errorHTML(e.message)); return; }
+  if (!c.alive()) return;
+  const t = s.totals;
+  if (!t.plays) { c.set(topBar('Your year in music') + emptyHTML('stats', 'Nothing to look back on yet.<br>Listen for a while and come back.', '<a class="btn" href="#/search">Find music</a>')); return; }
+  const hrs = Math.round(t.minutes / 60), top = s.topArtists[0], songs = s.topSongs.slice(0, 5);
+  const peak = s.byHour.indexOf(Math.max(...s.byHour)), wd = s.byWeekday.indexOf(Math.max(...s.byWeekday));
+  const persona = peak >= 22 || peak < 4 ? ['Night owl', 'Most of your listening happens after dark.'] : peak < 10 ? ['Early bird', 'You start the day with music.'] : peak < 18 ? ['Daytime listener', 'Music keeps you company through the day.'] : ['Evening listener', 'You wind down with music.'];
+  const day = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'][wd];
+  const best = s.months.reduce((a, m) => m.plays > (a ? a.plays : 0) ? m : a, null);
+  const hr12 = h => `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`;
+  const card = (cls, inner) => `<section class="wcard ${cls}">${inner}</section>`;
+  c.set(topBar('Your year in music', `<button class="btn tonal" data-wshare>${ic('share')}Share</button>`) + `<div class="wrap">
+    ${card('w1', `<span>The last 12 months</span><b class="big">${fmtN(hrs)}</b><h2>hours of music</h2><p>${fmtN(t.plays)} plays · ${fmtN(t.songs)} songs · ${fmtN(t.artists)} artists</p>`)}
+    ${top ? card('w2', `<span>Your top artist</span>${top.thumb ? `<img src="${img(top.thumb)}" alt="">` : ''}<h2>${esc(top.name)}</h2><p>${fmtN(top.plays)} plays · ${fmtTime(top.minutes)}</p>`) : ''}
+    ${songs.length ? card('w3', `<span>Your top songs</span><ol>${songs.map((x, i) => `<li><i>${i + 1}</i><div><b>${esc(x.title)}</b><em>${esc(x.artist || '')}</em></div><u>${x.plays}×</u></li>`).join('')}</ol>`) : ''}
+    ${s.genres.length ? card('w4', `<span>Your sound</span><h2>${esc(s.genres[0].name)}</h2><div class="gbars">${s.genres.slice(0, 5).map(g => `<div><em>${esc(g.name)}</em><i style="width:${Math.max(6, Math.round(g.pct))}%"></i></div>`).join('')}</div>`) : ''}
+    ${card('w5', `<span>You are a</span><h2>${persona[0]}</h2><p>${persona[1]} Peak hour: ${hr12(peak)}. Favourite day: ${day}.${best ? ` Biggest month: ${esc(best.label)}.` : ''}${t.streak > 1 ? ` Longest current streak: ${t.streak} days.` : ''}</p>`)}
+    <div class="sub" style="color:var(--dim);font-size:12px;text-align:center;padding:8px">Counted from songs you listened to for at least 30 seconds.</div></div>`);
+  $('#view').addEventListener('click', e => { if (e.target.closest('[data-wshare]')) shareWrapped({ hrs, t, top, songs, persona }); });
+}
+async function shareWrapped(d) {
+  const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const x = cv.getContext('2d');
+  const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue('--accent').trim() || '#d0bcff';
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#1d1233'); g.addColorStop(1, '#3a2d5c'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = acc; x.globalAlpha = .12; x.beginPath(); x.arc(W - 120, 160, 360, 0, 7); x.fill(); x.globalAlpha = 1;
+  x.fillStyle = '#e6e0e9'; x.font = '600 38px system-ui, sans-serif'; x.fillText('metroweb · my year in music', 72, 120);
+  x.fillStyle = acc; x.font = '800 260px system-ui, sans-serif'; x.fillText(fmtN(d.hrs), 66, 400);
+  x.fillStyle = '#e6e0e9'; x.font = '600 56px system-ui, sans-serif'; x.fillText('hours of music', 72, 480);
+  x.fillStyle = '#cac4d0'; x.font = '400 36px system-ui, sans-serif'; x.fillText(`${fmtN(d.t.plays)} plays · ${fmtN(d.t.songs)} songs · ${fmtN(d.t.artists)} artists`, 72, 540);
+  let y = 660;
+  if (d.top) {
+    try { const im = new Image(); im.src = img(d.top.thumb); await im.decode(); x.save(); x.beginPath(); x.roundRect(72, y - 40, 220, 220, 28); x.clip(); x.drawImage(im, 72, y - 40, 220, 220); x.restore(); } catch {}
+    x.fillStyle = '#948f99'; x.font = '600 28px system-ui, sans-serif'; x.fillText('TOP ARTIST', 330, y + 20);
+    x.fillStyle = '#e6e0e9'; x.font = '700 64px system-ui, sans-serif'; x.fillText(d.top.name.slice(0, 22), 330, y + 100); x.font = '400 34px system-ui, sans-serif'; x.fillStyle = '#cac4d0'; x.fillText(`${fmtN(d.top.plays)} plays`, 330, y + 152);
+  }
+  y = 960; x.fillStyle = '#948f99'; x.font = '600 28px system-ui, sans-serif'; x.fillText('TOP SONGS', 72, y);
+  d.songs.slice(0, 5).forEach((s, i) => { x.fillStyle = acc; x.font = '700 40px system-ui, sans-serif'; x.fillText(String(i + 1), 72, y + 64 + i * 64); x.fillStyle = '#e6e0e9'; x.font = '500 40px system-ui, sans-serif'; x.fillText(`${s.title.slice(0, 30)} · ${(s.artist || '').split(',')[0].slice(0, 18)}`, 130, y + 64 + i * 64); });
+  x.fillStyle = '#948f99'; x.font = '400 30px system-ui, sans-serif'; x.fillText(d.persona[0], 72, H - 56);
+  cv.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'my-year-in-music.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); snack('Image saved'); }, 'image/png');
+}
+
 document.addEventListener('click', e => {
   const a = e.target.closest('[data-acc]'); if (a) { accountSheet(); return; }
   if (e.target.closest('[data-back]')) { goBack(); return; }

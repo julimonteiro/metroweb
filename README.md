@@ -123,6 +123,8 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/lyrics?title=&artist=&album=&duration=` | Time-synced (or plain) lyrics from LRCLIB |
 | `GET /api/clip/info?title=&artist=` · `GET /api/clip/offset?song=&clip=` · `GET /api/clip/{id}` | Find the official music video / stream it (downloaded once into the cache, Range supported) |
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
+| `GET /api/status` · `POST /api/status/update-ytdlp` · `POST /api/backup/now` · `GET /api/backup/download` | Server status, update yt-dlp, backups |
+| `POST /api/import/list` · `GET /api/import/list?id=` | Import a pasted list / CSV as a playlist (async job) |
 | `GET /api/mixes?tz=` | Mixes for you (on repeat, rewind, hidden gems, time of day, artists, genres) |
 | `GET /api/plays/summary` | Play count and last play time per song (feeds the smart shuffle) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
@@ -144,6 +146,34 @@ The Home page opens with mixes built from your own listening history and your Li
 - **Genre mixes**: your two biggest genres (from the Stats genre lookups).
 
 A mix only shows up once it has enough songs, so the list grows as you listen. Open one to play it, shuffle it, add it to a playlist (save it) or download it. `GET /api/mixes?tz=` returns them.
+
+## Keeping it running
+
+- **yt-dlp updates itself.** YouTube breaks old versions, so the server installs the latest yt-dlp into `<data>/ytdlp` once a day (and on demand) and only switches to it after it runs; a failed update keeps the working copy. Needs network access to PyPI.
+- **Health check.** `/healthz` answers `ok` without a login and the Docker image has a `HEALTHCHECK`, so `docker ps` shows `healthy`.
+- **Status page** (account menu → Server status): yt-dlp and ffmpeg versions, Jellyfin index, free disk space, stream cache, uptime, play reports, and buttons to update yt-dlp and to back up.
+- **Backups.** Your playlists, listening history and sync state are archived daily to `<data>/backups` (last 14 kept). You can also download one from the status page. Logins and the session secret are never included.
+
+## Play reports (optional)
+
+- **ListenBrainz**: set `LISTENBRAINZ_TOKEN` (your user token from listenbrainz.org/profile) and every counted play is scrobbled there, in the background.
+- **Jellyfin**: songs you own are marked as played in Jellyfin so its play counts stay right. It uses the first Jellyfin user; set `JELLYFIN_USER` to pick another, or `JELLYFIN_MARK_PLAYED=0` to turn it off.
+
+A failed report never affects playback.
+
+## Offline songs
+
+Save any song, album or playlist for offline play from the ⋮ menu or the cloud button. They are stored in this browser (Cache Storage) and played by a service worker, so they keep working without a connection; the app opens straight into the Offline page when you are offline. Library → Offline songs, or Settings, shows what is saved. Use it from a browser that supports service workers (they need HTTPS or localhost).
+
+## Import a playlist
+
+Library → Import takes a YouTube / YouTube Music playlist or album link, or a pasted list (`Artist - Title` per line) or a Spotify CSV (e.g. from Exportify). Songs are matched strictly on title and artist; whatever could not be matched is listed afterwards.
+
+## Settings, themes and extras
+
+- **Settings** (account menu): smooth transitions (fade out and in between songs), volume leveling (a gentle compressor; experimental, and on iPhone it may stop in the background), playback speed, **theme** (system, dark, light) and **accent colour** (from the artwork, or a fixed colour).
+- **Your year in music** (Stats → Year in music): a recap of the last 12 months, shareable as an image.
+- **Right-click or long-press** any song for its menu; on desktop, **drag a song** onto the tray that appears to add it to the queue or a playlist.
 
 ## Smart shuffle
 

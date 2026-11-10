@@ -14,6 +14,8 @@ services:
       # Optional: ask Jellyfin to rescan after every download.
       JELLYFIN_URL: ""
       JELLYFIN_API_KEY: ""
+      # Optional: scrobble every play to ListenBrainz (token from listenbrainz.org/profile).
+      LISTENBRAINZ_TOKEN: ""
     volumes:
       - ./music:/music   # change to the folder Jellyfin watches
       - data:/data       # credentials, playlists, session secret
