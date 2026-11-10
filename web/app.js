@@ -28,6 +28,7 @@ const IC = {
   grip: 'M9 4h2v2H9zm4 0h2v2h-2zM9 9h2v2H9zm4 0h2v2h-2zM9 14h2v2H9zm4 0h2v2h-2zM9 19h2v2H9zm4 0h2v2h-2z',
   mute: 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z',
   speed: 'M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z',
+  cloud: 'M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z',
   clock: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
   music: 'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z',
   radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z',
@@ -113,6 +114,7 @@ function stateOf(id) {
   return '';
 }
 function stIcon(id) {
+  if (offTracks[id]) return `<span class="st off" title="Saved for offline">${ic('cloud')}</span>`;
   const s = stateOf(id);
   if (s === 'busy') return `<span class="st" title="Downloading…">${ic('clock')}</span>`;
   if (s === 'done') return `<span class="st" title="Downloaded to your library">${ic('check')}</span>`;
@@ -181,8 +183,9 @@ const ROUTES = [
   [/^\/playlist\/([\w-]+)$/, 'playlist', viewPlaylist],
   [/^\/mix\/([\w-]+)$/, 'mix', viewForYou],
   [/^\/status$/, 'status', viewStatus],
+  [/^\/offline$/, 'offline', viewOffline],
 ];
-const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home' };
+const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home', offline: 'library' };
 
 function route() {
   const { path, params } = parseHash();
@@ -432,12 +435,14 @@ const listButtons = (extra = '') => `<button class="btn" data-act="play">${ic('p
   <button class="btn tonal" data-act="shuffle">${ic('shuf')}Shuffle</button>
   <button class="iconbtn" data-act="addpl" aria-label="Add to playlist">${ic('addq')}</button>
   <button class="iconbtn" data-act="dlall" aria-label="Download all">${ic('dl')}</button>
+  <button class="iconbtn" data-act="offall" aria-label="Save for offline" title="Save for offline">${ic('cloud')}</button>
   <button class="iconbtn" data-act="share" aria-label="Share link">${ic('share')}</button>${extra}`;
 function listAction(act, tracks, title, url) {
   if (act === 'play' && tracks.length) playList(tracks, 0);
   if (act === 'shuffle' && tracks.length) playShuffled(tracks);
   if (act === 'addpl') playlistPicker(tracks, title);
   if (act === 'dlall') downloadAll(tracks);
+  if (act === 'offall') saveOffline(tracks.map(T));
   if (act === 'share' && url) share(url, title);
 }
 function bindActions(c) {
@@ -449,7 +454,8 @@ async function viewLibrary(c) {
   await refreshPlaylists();
   if (!c.alive()) return;
   const items = playlists.map(p => ({ type: 'playlist', id: 'local:' + p.id, local: p.id, title: p.name, subtitle: `${p.count} song${p.count === 1 ? '' : 's'}`, thumb: p.thumb }));
-  c.set(`<div class="top"><h1>Library</h1><button class="btn tonal" data-newpl>${ic('add')}New playlist</button>${avatarBtn()}</div>
+  c.set(`<div class="top"><h1>Library</h1><button class="btn tonal" data-import>${ic('dl')}Import</button><button class="btn tonal" data-newpl>${ic('add')}New playlist</button>${avatarBtn()}</div>
+    ${Object.keys(offTracks).length ? `<div class="chips"><a class="chip" href="#/offline">${ic('cloud', 18)}Offline songs (${Object.keys(offTracks).length})</a></div>` : ''}
     <div id="banner">${bannerHTML()}</div>
     <div class="grid">${cards(items, reg('pl', items))}</div>
     ${recent.length ? section('Recently played', songRows(recent.slice(0, 8), reg('rh', recent.slice(0, 8), 'one'))) : ''}`);
@@ -508,6 +514,7 @@ async function viewStatus(c) {
       ${tile('Server data', fmtBytes(s.data.free), 'free of ' + fmtBytes(s.data.total), low(s.data))}
       ${tile('Stream cache', fmtBytes(s.cacheBytes), `${s.cacheFiles} files`)}
       ${tile('Plays recorded', fmtN(s.plays), '')}
+      ${tile('Scrobbling', (s.scrobble.listenbrainz || s.scrobble.jellyfin) ? [s.scrobble.listenbrainz ? 'ListenBrainz' : '', s.scrobble.jellyfin ? 'Jellyfin' : ''].filter(Boolean).join(' + ') : 'Off', (s.scrobble.listenbrainz || s.scrobble.jellyfin) ? (s.scrobble.error ? esc(s.scrobble.error) : `${s.scrobble.sent} sent · ${s.scrobble.jfMarked} marked in Jellyfin`) : 'Set LISTENBRAINZ_TOKEN', !!s.scrobble.error)}
       ${tile('Uptime', fmtUp(s.uptime), esc(s.go))}</div>
     <div class="actions" style="padding-top:14px"><button class="btn tonal" data-st="update" ${y.running || !y.canUpdate ? 'disabled' : ''}>${ic('dl')}Update yt-dlp now</button></div>
     <h2 class="sec"><span>Backups</span></h2>
@@ -770,6 +777,44 @@ async function addToPlaylist(id, tracks, name) {
     refreshPlaylists();
   } catch (e) { snack(e.message); }
 }
+// ---- import a playlist: a YouTube / YouTube Music link, or a pasted list / Spotify CSV
+function importSheet() {
+  openSheet(`<h3>Import a playlist</h3><div class="sub">Paste a YouTube or YouTube Music playlist link, or a list of songs: one “Artist - Title” per line, or a Spotify CSV (for example from Exportify).</div>
+    <form id="impf"><input type="text" id="impn" placeholder="Playlist name" maxlength="100" autocomplete="off" required>
+    <textarea id="impt" rows="7" placeholder="https://music.youtube.com/playlist?list=…&#10;or&#10;Daft Punk - One More Time&#10;Radiohead - Creep" spellcheck="false" required></textarea>
+    <div class="msg" id="impm"></div><div class="btns"><button type="button" class="btn ghost" id="impc">Cancel</button><button class="btn" type="submit" id="impg">Import</button></div></form>`);
+  $('#sheet').onclick = null; $('#impc').onclick = closeSheet; setTimeout(() => $('#impn').focus(), 250);
+  $('#impf').onsubmit = async e => {
+    e.preventDefault();
+    const name = $('#impn').value.trim(), text = $('#impt').value.trim(), m = $('#impm'), go_ = $('#impg');
+    m.className = 'msg'; m.textContent = ''; go_.disabled = true;
+    try {
+      const first = text.split('\n')[0].trim(), link = /^https?:\/\//i.test(first) && !text.includes('\n') ? parseYTLink(first) : null;
+      if (link && (link.kind === 'yt' || link.kind === 'album')) {
+        m.textContent = 'Reading the playlist…';
+        const tracks = (link.kind === 'album' ? (await api('/api/album/' + link.id)).tracks : await api('/api/songs?b=' + encodeURIComponent(link.id))).map(T);
+        if (!tracks.length) throw new Error('That playlist has no songs we can read');
+        const made = await send('POST', '/api/playlists', { name, tracks });
+        await refreshPlaylists(); closeSheet(); snack(`Imported ${tracks.length} songs into “${made.name}”`); if (routeName === 'library') route();
+        return;
+      }
+      const { id } = await send('POST', '/api/import/list', { name, text });
+      for (;;) {
+        await new Promise(r => setTimeout(r, 1500));
+        const st = await api('/api/import/list?id=' + id);
+        if (st.running) { m.textContent = `Matching songs… ${st.done} of ${st.total}`; continue; }
+        if (st.error) throw new Error(st.error);
+        await refreshPlaylists();
+        openSheet(`<h3>Imported “${esc(name)}”</h3><div class="sub">${st.found} of ${st.total} songs added.${st.missing && st.missing.length ? ` ${st.missing.length} could not be matched:` : ''}</div>
+          ${st.missing && st.missing.length ? `<div class="miss">${st.missing.slice(0, 12).map(x => `<div>${esc(x)}</div>`).join('')}${st.missing.length > 12 ? `<div>…and ${st.missing.length - 12} more</div>` : ''}</div>` : ''}
+          <div class="btns"><button class="btn" id="impo">Open playlist</button></div>`);
+        $('#sheet').onclick = null; $('#impo').onclick = () => { closeSheet(); go('/playlist/' + st.playlistId); };
+        if (routeName === 'library') route();
+        return;
+      }
+    } catch (err) { m.textContent = err.message; go_.disabled = false; }
+  };
+}
 function playlistPicker(tracks, title) {
   if (!tracks.length) { snack('Nothing to add'); return; }
   const one = tracks.length === 1 ? esc(tracks[0].title) : `${tracks.length} songs`;
@@ -802,6 +847,112 @@ function confirmSheet(title, text, cta, onOk) {
   $('#co').onclick = async () => { closeSheet(); try { await onOk(); } catch (e) { snack(e.message); } };
 }
 
+// ---- offline songs: saved in the browser (Cache Storage) and played by the service worker
+let offTracks = store.get('mw.off', {});
+const OFF_CACHE = 'mw-offline-v1';
+async function saveOffline(tracks) {
+  if (!('caches' in window) || !('serviceWorker' in navigator)) { snack('Offline songs are not available in this browser'); return; }
+  const todo = tracks.filter(t => !offTracks[t.id]);
+  if (!todo.length) { snack('Already saved for offline'); return; }
+  snack(`Saving ${todo.length} song${todo.length === 1 ? '' : 's'} for offline…`);
+  const cache = await caches.open(OFF_CACHE); let ok = 0, last = '';
+  for (const t of todo) {
+    try {
+      const r = await fetch(streamURL(t));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const blob = await r.blob();
+      if (blob.size < 20000) throw new Error('empty audio');
+      await cache.put('/offline/' + t.id, new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mp4' } }));
+      offTracks[t.id] = T(t); store.set('mw.off', offTracks); ok++;
+    } catch (e) { last = e.message; }
+  }
+  snack(ok === todo.length ? `${ok} song${ok === 1 ? '' : 's'} saved for offline` : ok ? `${ok} of ${todo.length} saved (${last})` : `Could not save: ${last}`);
+  updateNow();
+  if (routeName === 'offline' || routeName === 'library') route();
+}
+async function removeOffline(ids) {
+  try { const cache = await caches.open(OFF_CACHE); for (const id of ids) { await cache.delete('/offline/' + id); delete offTracks[id]; } } catch {}
+  store.set('mw.off', offTracks); updateNow();
+  if (routeName === 'offline') route();
+}
+async function offlineUsage() {
+  try { const e = await navigator.storage.estimate(); return e.usage ? fmtBytes(e.usage) : ''; } catch { return ''; }
+}
+async function viewOffline(c) {
+  const tracks = Object.values(offTracks), use = await offlineUsage();
+  if (!c.alive()) return;
+  c.set(tracksHeader({ title: 'Offline songs', thumb: tracks[0] && tracks[0].thumb, icon: 'cloud', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}${use ? ' • ' + use : ''}`,
+      buttons: `<button class="btn" data-act="play">${ic('play')}Play</button><button class="btn tonal" data-act="shuffle">${ic('shuf')}Shuffle</button>${tracks.length ? `<button class="iconbtn" data-act="clearoff" aria-label="Remove all">${ic('del')}</button>` : ''}` }) +
+    (tracks.length ? songRows(tracks, reg('t', tracks, 'queue')) : emptyHTML('cloud', 'Songs you save for offline show up here.<br>Use the ⋮ menu on a song, or the cloud button on a playlist or album.')));
+  c.actions = act => {
+    if (act === 'clearoff') confirmSheet('Remove all offline songs?', 'They stay in your library, only the copies saved on this device are removed.', 'Remove', () => removeOffline(Object.keys(offTracks)));
+    else listAction(act, tracks, 'Offline songs', null);
+  };
+  bindActions(c);
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+window.addEventListener('offline', () => snack('You are offline. Songs saved for offline still play.'));
+
+// ---- settings (playback)
+const switchRow = (id, title, sub, on) => `<button class="swrow" data-sw="${id}" role="switch" aria-checked="${on}"><span><b>${esc(title)}</b><i>${esc(sub)}</i></span><span class="sw${on ? ' on' : ''}"></span></button>`;
+function settingsSheet() {
+  const paint = () => {
+    openSheet(`<h3>Settings</h3>
+      <h4 class="sethead">Playback</h4>
+      ${switchRow('fade', 'Smooth transitions', 'Fade out the end of a song and fade the next one in', fadeOn)}
+      ${switchRow('level', 'Volume leveling', 'Evens out loud and quiet songs. Experimental: on iPhone it may stop in the background', levelOn)}
+      <button class="swrow" data-sw="offline"><span><b>Offline songs</b><i>${Object.keys(offTracks).length} saved on this device</i></span>${ic('cloud')}</button>
+      <button class="swrow" data-sw="speed"><span><b>Playback speed</b><i>${rate === 1 ? 'Normal' : rate + '×'}</i></span>${ic('speed')}</button>
+      ${appearanceHTML ? appearanceHTML() : ''}`);
+    $('#sheet').onclick = e => {
+      const b = e.target.closest('[data-sw]'); if (!b) return;
+      const k = b.dataset.sw;
+      if (k === 'fade') { fadeOn = !fadeOn; store.set('mw.fade', fadeOn); paint(); }
+      else if (k === 'level') { setLeveling(!levelOn); paint(); }
+      else if (k === 'speed') speedSheet();
+      else if (k === 'offline') { closeSheet(); go('/offline'); }
+      else if (appearanceClick) appearanceClick(k, paint);
+    };
+  };
+  paint();
+}
+const appearanceHTML = null, appearanceClick = null;
+
+// ---- smooth transitions: fade the end of a song out and the start of the next in
+let fadeOn = store.get('mw.fade', false), sleeping = false;
+const FADE_OUT = 3, FADE_IN = 1.8;
+const baseVol = () => +$('#vol').value / 100;
+function fadeGain() {
+  if (!fadeOn || sleeping || !audio.duration || !isFinite(audio.duration)) return 1;
+  const rem = audio.duration - audio.currentTime, hasNext = idx < queue.length - 1 || repeat > 0;
+  let g = Math.min(1, audio.currentTime / FADE_IN);
+  if (hasNext && repeat !== 2) g = Math.min(g, Math.max(0, rem / FADE_OUT));
+  return Math.max(0.0001, g);
+}
+setInterval(() => { if (fadeOn && !sleeping && !audio.paused) audio.volume = Math.max(0, Math.min(1, baseVol() * fadeGain())); }, 100);
+
+// ---- volume leveling: a gentle compressor so loud and quiet songs sit closer together
+let levelOn = false, actx = null, lvSrc = null, lvComp = null, lvGain = null;
+function setLeveling(on) {
+  try {
+    if (on && !actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      lvSrc = actx.createMediaElementSource(audio);
+      lvComp = actx.createDynamicsCompressor();
+      lvComp.threshold.value = -26; lvComp.knee.value = 30; lvComp.ratio.value = 4; lvComp.attack.value = 0.005; lvComp.release.value = 0.25;
+      lvGain = actx.createGain(); lvGain.gain.value = 1.3;
+    }
+    if (actx) {
+      lvSrc.disconnect(); lvComp.disconnect(); lvGain.disconnect();
+      if (on) { lvSrc.connect(lvComp); lvComp.connect(lvGain); lvGain.connect(actx.destination); actx.resume(); }
+      else lvSrc.connect(actx.destination);
+    }
+    levelOn = on; store.set('mw.level', on);
+  } catch (e) { levelOn = false; store.set('mw.level', false); snack('Volume leveling is not available in this browser'); }
+}
+// the browser only allows audio processing after a tap: apply the saved choice on the first play
+audio.addEventListener('play', () => { if (store.get('mw.level', false) && !levelOn) setLeveling(true); if (actx && actx.state === 'suspended') actx.resume(); }, { once: false });
+
 // ---- playback speed
 let rate = +store.get('mw.rate', 1) || 1;
 function applyRate() { audio.defaultPlaybackRate = rate; audio.playbackRate = rate; }
@@ -822,11 +973,11 @@ function sleepLabel() {
 function updateSleepUI() { const b = $('#dSleep'); if (!b) return; b.classList.toggle('on', !!sleep); b.style.color = sleep ? 'var(--accent)' : ''; b.title = sleepLabel(); }
 function clearSleep() { if (sleep && sleep.timer) clearTimeout(sleep.timer); sleep = null; updateSleepUI(); }
 function sleepFire() {
-  sleep = null; updateSleepUI();
+  sleep = null; sleeping = true; updateSleepUI();
   const v = audio.volume; let n = 0;
   const iv = setInterval(() => {
     n++; audio.volume = Math.max(0, v * (1 - n / 20));
-    if (n >= 20) { clearInterval(iv); audio.pause(); audio.volume = v; snack('Sleep timer: paused. Good night.'); }
+    if (n >= 20) { clearInterval(iv); audio.pause(); sleeping = false; audio.volume = v; snack('Sleep timer: paused. Good night.'); }
   }, 200);
 }
 function setSleep(mins) {
@@ -912,6 +1063,7 @@ function trackMenu(t, ctx = {}) {
     ${act('queue', 'addq', 'Add to queue')}
     ${act('like', liked_ ? 'heart' : 'heart0', liked_ ? 'Remove from Liked songs' : 'Like', 'accent')}
     ${act('pl', 'lib', 'Add to playlist')}
+    ${act('off', 'cloud', offTracks[t.id] ? 'Remove from offline' : 'Save for offline')}
     ${act('dl', st === 'done' || st === 'owned' ? 'check' : 'dl', st === 'done' ? 'Downloaded to your library' : st === 'owned' ? 'Already in your Jellyfin library' : st === 'busy' ? 'Downloading…' : 'Download to library')}
     ${ctx.player ? act('speed', 'speed', rate === 1 ? 'Playback speed' : `Playback speed: ${rate}×`) : ''}
     ${ctx.player ? act('sleep', 'moon', sleepLabel()) : ''}
@@ -930,6 +1082,7 @@ function trackMenu(t, ctx = {}) {
     if (a === 'queue') { queue.push(T(t)); persist(); renderQueueList(); snack('Added to queue'); }
     if (a === 'like') toggleLike(t);
     if (a === 'pl') playlistPicker([t], t.title);
+    if (a === 'off') { if (offTracks[t.id]) removeOffline([t.id]); else saveOffline([T(t)]); }
     if (a === 'dl') { if (st === 'err') delete dls[t.id]; download(t.id); }
     if (a === 'artist') { closeFp(); go('/artist/' + t.artistId); }
     if (a === 'album') { closeFp(); go('/album/' + t.albumId); }
@@ -955,9 +1108,9 @@ async function accountSheet() {
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
     </form>
     <div class="syncline" id="syncLine"></div>
-    <div class="acclinks"><button data-go="/status">${ic('stats')}Server status</button></div>`);
+    <div class="acclinks"><button data-act="settings">${ic('speed')}Settings</button><button data-go="/status">${ic('stats')}Server status</button></div>`);
   if (jfEnabled) fillSync();
-  $('#sheet').onclick = e => { const g = e.target.closest('[data-go]'); if (g) { closeSheet(); go(g.dataset.go); } };
+  $('#sheet').onclick = e => { const g = e.target.closest('[data-go]'); if (g) { closeSheet(); go(g.dataset.go); } else if (e.target.closest('[data-act="settings"]')) settingsSheet(); };
   $('#logout').onclick = async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; };
   $('#accForm').onsubmit = async e => {
     e.preventDefault(); const f = e.target, m = $('#accMsg'); m.className = 'msg'; m.textContent = '';
@@ -1193,6 +1346,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('[data-acc]'); if (a) { accountSheet(); return; }
   if (e.target.closest('[data-back]')) { goBack(); return; }
   if (e.target.closest('[data-retry]')) { route(); return; }
+  if (e.target.closest('[data-import]')) { importSheet(); return; }
   if (e.target.closest('[data-newpl]')) { promptSheet('New playlist', '', 'Create', async name => { await send('POST', '/api/playlists', { name }); await refreshPlaylists(); snack('Playlist created'); route(); }); return; }
   const ar = e.target.closest('[data-artist]'); if (ar) { go('/artist/' + ar.dataset.artist); return; }
 
@@ -1528,5 +1682,6 @@ async function migrateLocalFavs() {
   await Promise.all([loadLiked(), refreshPlaylists(), loadJellyfin()]);
   pollDl();
   if (cur()) themeFrom(cur().thumb);
+  if (!navigator.onLine && Object.keys(offTracks).length && !location.hash.startsWith('#/offline')) location.hash = '#/offline';
   route(); updateNow();
 })();

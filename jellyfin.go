@@ -29,6 +29,7 @@ type JellyfinIndex struct {
 	updated time.Time
 	lastErr string
 	kick    chan struct{}
+	userID  string // Jellyfin user plays are credited to (resolved lazily)
 }
 
 func NewJellyfinIndex(baseURL, key string) *JellyfinIndex {

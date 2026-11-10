@@ -36,6 +36,7 @@ type ServerStatus struct {
 	CacheN   int            `json:"cacheFiles"`
 	Plays    int            `json:"plays"`
 	Backups  []BackupInfo   `json:"backups"`
+	Scrobble ScrobbleStatus `json:"scrobble"`
 }
 
 func diskInfo(path string) DiskInfo {
@@ -88,7 +89,7 @@ func registerOps(mux *http.ServeMux, lib *Library, jf *JellyfinIndex, st *StatsS
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		s := ServerStatus{Uptime: int64(time.Since(startedAt).Seconds()), Go: runtime.Version(), YtDlp: ytdlpStatus(), FFmpeg: ffmpegVersion(),
-			Jellyfin: jf.Status(), Library: diskInfo(lib.Dir), Data: diskInfo(dataDir), Plays: st.Count(), Backups: ListBackups(dataDir)}
+			Jellyfin: jf.Status(), Library: diskInfo(lib.Dir), Data: diskInfo(dataDir), Plays: st.Count(), Backups: ListBackups(dataDir), Scrobble: scrobbler.Status()}
 		if streamCacheDir != "" {
 			s.CacheB, s.CacheN = dirSize(streamCacheDir)
 		}

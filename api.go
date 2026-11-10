@@ -259,11 +259,42 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 			return
 		}
 		counted, err := st.Record(in.Track, time.Now())
+		if counted {
+			if t, ok := sanitizeTrack(in.Track); ok {
+				scrobbler.Play(t, time.Now())
+			}
+		}
 		if err != nil && !counted {
 			apiErr(w, 400, err.Error())
 			return
 		}
 		writeJSON(w, 200, map[string]bool{"counted": counted})
+	})
+	li := NewListImporter(pls)
+	mux.HandleFunc("/api/import/list", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			var in struct{ Name, Text string }
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10)).Decode(&in) != nil {
+				apiErr(w, 400, "invalid request")
+				return
+			}
+			id, err := li.Start(in.Name, in.Text)
+			if err != nil {
+				apiErr(w, 400, err.Error())
+				return
+			}
+			writeJSON(w, 202, map[string]string{"id": id})
+		case http.MethodGet:
+			st, ok := li.Status(r.URL.Query().Get("id"))
+			if !ok {
+				apiErr(w, 404, "unknown import")
+				return
+			}
+			writeJSON(w, 200, st)
+		default:
+			apiErr(w, 405, "method not allowed")
+		}
 	})
 	mux.HandleFunc("/api/mixes", func(w http.ResponseWriter, r *http.Request) {
 		tz, _ := strconv.Atoi(r.URL.Query().Get("tz"))
