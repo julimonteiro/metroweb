@@ -169,6 +169,8 @@ Space play/pause · ←/→ seek 5 s · Shift+←/→ previous/next · ↑/↓ v
 
 - **Jump back in** on Home: one tap starts Liked songs (smart shuffled), a mix or a playlist.
 - **Search and sort inside a playlist** (Liked songs included): filter by title/artist/album, sort by date added, A–Z or artist. Play and Shuffle then act on what you see.
+- **Queue**: drag the grip on the right of any row to reorder (mouse or touch). It is split into Now playing / Up next, shows how long is left, and tucks already played songs behind a toggle.
+- **Player**: swipe the cover left/right to skip, see what plays next at a glance (tap it for the queue), change the playback speed (0.75–2×, pitch kept) from the ⋮ menu, and mute with the speaker icon.
 - **Sleep timer**: the moon button in the desktop bar, or the ⋮ menu of the full-screen player. 15 to 60 minutes or the end of the song; it fades out before pausing.
 
 ## Disclaimer

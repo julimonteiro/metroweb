@@ -14,6 +14,7 @@ const IC = {
   heart0: 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z',
   dl: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z', check: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
   more: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+  up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z',
   down: 'M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z', close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
   shuf: 'M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z',
   rep: 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z',
@@ -24,6 +25,9 @@ const IC = {
   expand: 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z',
   warn: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
   moon: 'M12.1 22c-5.5 0-10-4.5-10-10 0-4.3 2.7-8 6.6-9.4.5-.2 1 0 1.2.4.2.4.1.9-.2 1.2-.9.9-1.4 2.1-1.4 3.3 0 2.6 2.1 4.7 4.7 4.7 1.2 0 2.4-.5 3.3-1.4.3-.3.8-.4 1.2-.2.4.2.6.7.4 1.2-1.5 3.3-4.9 5.2-8.4 5.2z',
+  grip: 'M9 4h2v2H9zm4 0h2v2h-2zM9 9h2v2H9zm4 0h2v2h-2zM9 14h2v2H9zm4 0h2v2h-2zM9 19h2v2H9zm4 0h2v2h-2z',
+  mute: 'M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z',
+  speed: 'M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z',
   clock: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
   music: 'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z',
   radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z',
@@ -121,12 +125,13 @@ function stIcon(id) {
 function rowHTML(t, l, i, o = {}) {
   const c = cur(), isCur = c && c.id === t.id && (l !== 'queue' || i === idx);
   const sub = [t.artist, o.noAlbum ? '' : t.album].filter(Boolean).join(' • ');
-  return `<div class="row${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
+  return `<div class="row${o.grip ? ' hasgrip' : ''}${isCur ? ' cur' : ''}${isCur && playing() ? ' playing' : ''}" data-l="${l}" data-i="${i}" data-id="${esc(t.id)}" role="button" tabindex="0">
     ${o.num ? `<span class="num">${o.num}</span>` : `<img class="art" loading="lazy" src="${img(t.thumb)}" alt="">`}
     <span class="eq"><i></i><i></i><i></i></span>
     <div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${stIcon(t.id)}<span>${esc(sub)}</span></div></div>
     <span class="dur"${o.right !== undefined ? ' style="color:var(--accent);font-weight:700"' : ''}>${esc(o.right ?? t.duration)}</span>
     <button class="iconbtn" data-more aria-label="More options">${ic('more')}</button>
+    ${o.grip ? `<span class="grip" data-grip title="Drag to reorder" aria-label="Drag to reorder">${ic('grip')}</span>` : ''}
   </div>`;
 }
 const songRows = (items, l, o) => items.map((t, i) => rowHTML(t, l, i, o)).join('');
@@ -623,20 +628,69 @@ function drawArea(s, el, W) {
 }
 
 // ---------- queue ----------
+const secs = d => { const p = String(d || '').split(':').map(Number); return p.some(isNaN) ? 0 : p.reduce((a, x) => a * 60 + x, 0); };
+const fmtLen = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min` : `${Math.max(1, Math.round(s / 60))} min`;
+let showPlayed = false;
 function viewQueue(c) {
+  showPlayed = false;
   c.set(`<div class="top"><h1>Queue</h1>
       <button class="chip" id="qSave" ${queue.length ? '' : 'disabled'}>${ic('addq')}Save</button>
       <button class="chip" id="qClear" ${queue.length ? '' : 'disabled'}>${ic('close')}Clear</button></div>
-    <div id="qList"></div>`);
+    <div id="qSum" class="qsum"></div><div id="qList"></div>`);
   renderQueueList.done = false; renderQueueList();
   $('#qClear').onclick = () => { queue = cur() ? [cur()] : []; idx = queue.length ? 0 : -1; persist(); renderQueueList(); };
   $('#qSave').onclick = () => playlistPicker(queue.map(T), 'Queue');
+  $('#qList').addEventListener('pointerdown', queueDrag);
+  $('#qList').addEventListener('click', e => { if (e.target.closest('[data-played]')) { showPlayed = !showPlayed; renderQueueList(); } else if (e.target.closest('[data-grip]')) e.stopPropagation(); }, true);
 }
 function renderQueueList() {
   const el = $('#qList'); if (!el) return;
   reg('queue', queue, 'queue');
-  el.innerHTML = queue.length ? songRows(queue, 'queue') : emptyHTML('queue', 'The queue is empty', '<a class="btn" href="#/search">Find music</a>');
-  const c = el.querySelector('.row.cur'); if (c && !renderQueueList.done) { c.scrollIntoView({ block: 'center' }); renderQueueList.done = true; }
+  const rows = (a, b) => { let s = ''; for (let i = a; i < b; i++) s += rowHTML(queue[i], 'queue', i, { grip: true }); return s; };
+  if (!queue.length) { el.innerHTML = emptyHTML('queue', 'The queue is empty', '<a class="btn" href="#/search">Find music</a>'); const s = $('#qSum'); if (s) s.textContent = ''; return; }
+  const cp = Math.max(idx, 0);
+  const left = queue.slice(cp + 1).reduce((a, t) => a + secs(t.duration), 0);
+  const sum = $('#qSum'); if (sum) sum.textContent = `${queue.length} song${queue.length === 1 ? '' : 's'}${queue.length > cp + 1 ? ` · ${fmtLen(left)} up next` : ''}${shuffle ? ' · shuffled' : ''}`;
+  el.innerHTML = (cp > 0 ? `<button class="qhead played" data-played>${showPlayed ? 'Hide' : 'Show'} ${cp} played song${cp === 1 ? '' : 's'}${ic(showPlayed ? 'up' : 'down', 18)}</button>${showPlayed ? rows(0, cp) : ''}` : '') +
+    `<h2 class="sec"><span>Now playing</span></h2>${rows(cp, cp + 1)}` +
+    (queue.length > cp + 1 ? `<h2 class="sec"><span>Up next</span></h2>${rows(cp + 1, queue.length)}` : '');
+  const c = el.querySelector('.row.cur'); if (c && !renderQueueList.done) { renderQueueList.done = true; if (cp > 2) c.scrollIntoView({ block: 'start' }); }
+}
+function moveQueueItem(from, to) {
+  if (from === to || from < 0 || to < 0 || from >= queue.length || to >= queue.length) return;
+  const [it] = queue.splice(from, 1); queue.splice(to, 0, it);
+  if (from === idx) idx = to; else if (from < idx && to >= idx) idx--; else if (from > idx && to <= idx) idx++;
+  persist(); renderQueueList(); updateNow();
+}
+// drag a row by its grip (mouse or touch) to reorder the queue
+function queueDrag(e) {
+  const grip = e.target.closest('[data-grip]'); if (!grip) return;
+  const list = $('#qList'), row = grip.closest('.row'), scroller = $('#content');
+  const rows = [...list.querySelectorAll('.row[data-id]')], rects = rows.map(r => r.getBoundingClientRect());
+  const me = rows.indexOf(row), from = +row.dataset.i, h = rects[me].height, y0 = e.clientY, s0 = scroller.scrollTop;
+  e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId);
+  row.classList.add('dragging'); let to = from, raf = 0, lastY = y0;
+  const place = () => {
+    const dy = lastY - y0 + (scroller.scrollTop - s0);
+    row.style.transform = `translateY(${dy}px)`;
+    const mid = rects[me].top + h / 2 + dy; let best = me;
+    rects.forEach((r, k) => { if (Math.abs(r.top + r.height / 2 - mid) < Math.abs(rects[best].top + rects[best].height / 2 - mid)) best = k; });
+    to = +rows[best].dataset.i;
+    rows.forEach(r => { if (r === row) return; const i = +r.dataset.i; r.style.transform = (from < to && i > from && i <= to) ? `translateY(${-h}px)` : (from > to && i < from && i >= to) ? `translateY(${h}px)` : ''; });
+  };
+  const tick = () => {
+    const box = scroller.getBoundingClientRect();
+    if (lastY < box.top + 70) scroller.scrollTop -= 10; else if (lastY > box.bottom - 150) scroller.scrollTop += 10;
+    place(); raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  const move = ev => { lastY = ev.clientY; };
+  const end = () => {
+    cancelAnimationFrame(raf); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+    rows.forEach(r => { r.style.transform = ''; }); row.classList.remove('dragging');
+    moveQueueItem(from, to);
+  };
+  grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
 }
 
 // ============================================================================
@@ -706,6 +760,15 @@ function confirmSheet(title, text, cta, onOk) {
   $('#sheet').onclick = null; $('#cc').onclick = closeSheet;
   $('#co').onclick = async () => { closeSheet(); try { await onOk(); } catch (e) { snack(e.message); } };
 }
+
+// ---- playback speed
+let rate = +store.get('mw.rate', 1) || 1;
+function applyRate() { audio.defaultPlaybackRate = rate; audio.playbackRate = rate; }
+function speedSheet() {
+  openSheet(`<h3>Playback speed</h3><div class="sub">Pitch stays the same</div>${[0.75, 1, 1.25, 1.5, 2].map(r => `<button class="act${r === rate ? ' accent' : ''}" data-r="${r}">${ic(r === rate ? 'check' : 'speed')}${r === 1 ? 'Normal' : r + '×'}</button>`).join('')}`);
+  $('#sheet').onclick = e => { const b = e.target.closest('[data-r]'); if (!b) return; rate = +b.dataset.r; store.set('mw.rate', rate); applyRate(); closeSheet(); snack(rate === 1 ? 'Normal speed' : `Speed ${rate}×`); };
+}
+applyRate();
 
 // ---- sleep timer: pause after N minutes (fading out) or at the end of the song
 let sleep = null;
@@ -809,6 +872,7 @@ function trackMenu(t, ctx = {}) {
     ${act('like', liked_ ? 'heart' : 'heart0', liked_ ? 'Remove from Liked songs' : 'Like', 'accent')}
     ${act('pl', 'lib', 'Add to playlist')}
     ${act('dl', st === 'done' || st === 'owned' ? 'check' : 'dl', st === 'done' ? 'Downloaded to your library' : st === 'owned' ? 'Already in your Jellyfin library' : st === 'busy' ? 'Downloading…' : 'Download to library')}
+    ${ctx.player ? act('speed', 'speed', rate === 1 ? 'Playback speed' : `Playback speed: ${rate}×`) : ''}
     ${ctx.player ? act('sleep', 'moon', sleepLabel()) : ''}
     ${t.artistId ? act('artist', 'user', 'Go to artist') : ''}
     ${t.albumId ? act('album', 'album', 'Go to album') : ''}
@@ -819,6 +883,7 @@ function trackMenu(t, ctx = {}) {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const a = b.dataset.a; closeSheet();
     if (a === 'sleep') sleepSheet();
+    if (a === 'speed') speedSheet();
     if (a === 'radio') startRadio(t);
     if (a === 'next') { queue.splice(idx + 1, 0, T(t)); persist(); renderQueueList(); snack('Playing next'); }
     if (a === 'queue') { queue.push(T(t)); persist(); renderQueueList(); snack('Added to queue'); }
@@ -1046,6 +1111,8 @@ function updateNow() {
     $('#fpImg').src = img(t.thumb); $('#fpT').textContent = t.title;
     const fa = $('#fpA'); fa.textContent = [t.artist, t.album].filter(Boolean).join(' • '); fa.disabled = !t.artistId;
   }
+  const nx = queue[idx + 1], un = $('#fpNext');
+  un.hidden = !nx; if (nx) un.innerHTML = `<span>Up next</span><b>${esc(nx.title)}</b><i>${esc(nx.artist || '')}</i>${ic('queue', 18)}`;
   const pi = pl ? 'pause' : 'play';
   for (const id of ['#miniPlay', '#play', '#dPlay']) $(id).innerHTML = ic(pi);
   $('#fp').classList.toggle('playing', pl); $('#fp').classList.toggle('paused', !pl);
@@ -1127,7 +1194,7 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault(); const v = $('#vol'); v.value = Math.max(0, Math.min(100, +v.value + (e.key === 'ArrowUp' ? 5 : -5))); v.dispatchEvent(new Event('input'));
     }
-    else if (e.key === 'm') { audio.muted = !audio.muted; snack(audio.muted ? 'Muted' : 'Unmuted'); }
+    else if (e.key === 'm') { const vi = $('.volic'); if (vi) vi.click(); else audio.muted = !audio.muted; snack(audio.muted ? 'Muted' : 'Unmuted'); }
     else if (e.key === 'l' && cur()) toggleLike(cur());
     else if (e.key === 's') { setShuffle(!shuffle); snack(shuffle ? 'Shuffle off' : 'Shuffle on'); }
     else if (e.key === 'r') $('#dRep').click();
@@ -1159,12 +1226,24 @@ $('#fpMore').onclick = () => { if (cur()) trackMenu(cur(), { player: true }); };
 $('#dSleep').onclick = sleepSheet;
 $('#fpPl').onclick = () => { if (cur()) playlistPicker([cur()], cur().title); };
 $('#fpQueue').onclick = () => { closeFp(); go('/queue'); };
+$('#fpNext').onclick = () => { closeFp(); go('/queue'); };
 $('#dQueue').onclick = () => go('/queue');
 $('#fpA').onclick = () => { const t = cur(); if (t && t.artistId) { closeFp(); go('/artist/' + t.artistId); } };
 $('#miniInfo').onclick = openFp; $('#miniInfo').addEventListener('keydown', e => { if (e.key === 'Enter') openFp(); });
 $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 
 // swipe down closes the full player; swipe up on the mini player opens it
+(() => {   // swipe the cover left/right: next / previous song
+  const img_ = $('#fpImg'); let x0 = null, dx = 0, pid = null;
+  img_.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') return; x0 = e.clientX; dx = 0; pid = e.pointerId; });
+  img_.addEventListener('pointermove', e => { if (x0 === null || e.pointerId !== pid) return; dx = e.clientX - x0; if (Math.abs(dx) > 8) { img_.style.transition = 'none'; img_.style.transform = `translateX(${dx}px) rotate(${dx / 40}deg)`; img_.style.opacity = String(1 - Math.min(.5, Math.abs(dx) / 500)); } });
+  const done = () => {
+    if (x0 === null) return; const d = dx; x0 = null; img_.style.transition = '';
+    if (Math.abs(d) > 80) { img_.style.transform = `translateX(${d > 0 ? 120 : -120}%)`; img_.style.opacity = '0'; setTimeout(() => { d > 0 ? prev() : next(); img_.style.transition = 'none'; img_.style.transform = `translateX(${d > 0 ? -40 : 40}%)`; requestAnimationFrame(() => requestAnimationFrame(() => { img_.style.transition = ''; img_.style.transform = ''; img_.style.opacity = ''; })); }, 180); }
+    else { img_.style.transform = ''; img_.style.opacity = ''; }
+  };
+  img_.addEventListener('pointerup', done); img_.addEventListener('pointercancel', done);
+})();
 (() => {
   const fp = $('#fp'); let y0 = null, dy = 0;
   fp.addEventListener('touchstart', e => { if (e.target.closest('input')) return; y0 = e.touches[0].clientY; dy = 0; }, { passive: true });
@@ -1323,7 +1402,7 @@ function placeVideo(force) {
   if (target < 0 || (isFinite(v.duration) && target > v.duration)) { v.pause(); return; }   // the clip has not started / has ended
   const diff = target - v.currentTime;
   if (force || Math.abs(diff) > 0.5) v.currentTime = target;
-  else v.playbackRate = Math.abs(diff) > 0.06 ? (diff > 0 ? 1.04 : 0.96) : 1;      // nudge gently instead of seeking
+  else v.playbackRate = Math.abs(diff) > 0.06 ? (diff > 0 ? 1.04 : 0.96) * audio.playbackRate : audio.playbackRate;      // nudge gently instead of seeking
   if (!audio.paused && v.paused) v.play().catch(() => {});
 }
 function stopVideo() {
@@ -1378,6 +1457,7 @@ function setSide(open, quiet) {
 // ============================================================================
 function paintStatic() {
   $$('[data-ic]').forEach(e => { e.innerHTML = ic(e.dataset.ic); e.style.display = 'inline-flex'; });
+  const vi = $('.volic'); if (vi) { vi.setAttribute('role', 'button'); vi.title = 'Mute'; vi.style.cursor = 'pointer'; vi.onclick = () => { audio.muted = !audio.muted; vi.innerHTML = ic(audio.muted ? 'mute' : 'vol'); vi.style.color = audio.muted ? 'var(--accent)' : ''; }; }
   const nav = { home: ['home', 'Home'], search: ['search', 'Search'], library: ['lib', 'Library'], stats: ['stats', 'Stats'], queue: ['queue', 'Queue'] };
   $$('#nav button').forEach(b => b.querySelector('.pill').innerHTML = ic(nav[b.dataset.nav][0]));
   $$('#side button[data-nav]').forEach(b => { b.innerHTML = ic(nav[b.dataset.nav][0]) + `<span class="lbl">${nav[b.dataset.nav][1]}</span>`; b.title = nav[b.dataset.nav][1]; });
