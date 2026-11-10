@@ -270,6 +270,45 @@ func registerAPI(mux *http.ServeMux, lib *Library, pls *PlaylistStore, st *Stats
 		}
 		writeJSON(w, 200, map[string]bool{"counted": counted})
 	})
+	// year in review: the numbers behind the story, and the "Top Songs" playlist
+	reviewYear := func(r *http.Request) (int, int) {
+		now := time.Now()
+		y, err := strconv.Atoi(r.URL.Query().Get("year"))
+		if err != nil || y < 2000 || y > 2100 {
+			y = now.Year()
+		}
+		tz, _ := strconv.Atoi(r.URL.Query().Get("tz"))
+		if tz < -14*60 || tz > 14*60 {
+			tz = 0
+		}
+		return y, tz
+	}
+	mux.HandleFunc("/api/review", func(w http.ResponseWriter, r *http.Request) {
+		y, tz := reviewYear(r)
+		writeJSON(w, 200, st.Review(y, tz, time.Now()))
+	})
+	mux.HandleFunc("/api/review/playlist", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			apiErr(w, 405, "method not allowed")
+			return
+		}
+		y, tz := reviewYear(r)
+		rv := st.Review(y, tz, time.Now())
+		if len(rv.TopSongs) == 0 {
+			apiErr(w, 400, "no plays in that year")
+			return
+		}
+		var tracks []Track
+		for _, c := range rv.TopSongs {
+			tracks = append(tracks, c.Track)
+		}
+		sum, err := pls.ReplaceRanked("Your Top Songs "+strconv.Itoa(y), tracks)
+		if err != nil {
+			apiErr(w, 500, err.Error())
+			return
+		}
+		writeJSON(w, 200, sum)
+	})
 	li := NewListImporter(pls)
 	mux.HandleFunc("/api/import/list", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

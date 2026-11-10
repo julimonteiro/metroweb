@@ -1277,24 +1277,28 @@ function toggle() { if (!audio.src) { if (queue.length) playAt(Math.max(idx, 0))
 
 // dynamic accent from artwork
 const colorCache = new Map();
-async function themeFrom(url) {
-  if (!url) return;
+// the dominant colour of a cover as [hue, saturation, lightness] (cached); null when it cannot be read
+async function coverHSL(url) {
+  if (!url) return null;
+  let c = colorCache.get(url);
+  if (c) return c;
   try {
-    let c = colorCache.get(url);
-    if (!c) {
-      const im = new Image(); im.crossOrigin = 'anonymous'; im.src = img(url); await im.decode();
-      const cv = document.createElement('canvas'); cv.width = cv.height = 24;
-      const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, 24, 24);
-      const d = x.getImageData(0, 0, 24, 24).data;
-      let r = 0, g = 0, b = 0, w = 0;
-      for (let i = 0; i < d.length; i += 4) {
-        const mx = Math.max(d[i], d[i+1], d[i+2]), mn = Math.min(d[i], d[i+1], d[i+2]), wt = 0.15 + (mx - mn) / 255;
-        r += d[i] * wt; g += d[i+1] * wt; b += d[i+2] * wt; w += wt;
-      }
-      c = toHSL(r / w, g / w, b / w); colorCache.set(url, c);
+    const im = new Image(); im.crossOrigin = 'anonymous'; im.src = img(url); await im.decode();
+    const cv = document.createElement('canvas'); cv.width = cv.height = 24;
+    const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, 24, 24);
+    const d = x.getImageData(0, 0, 24, 24).data;
+    let r = 0, g = 0, b = 0, w = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const mx = Math.max(d[i], d[i+1], d[i+2]), mn = Math.min(d[i], d[i+1], d[i+2]), wt = 0.15 + (mx - mn) / 255;
+      r += d[i] * wt; g += d[i+1] * wt; b += d[i+2] * wt; w += wt;
     }
-    lastHS = c; paintAccent();
-  } catch {}
+    c = toHSL(r / w, g / w, b / w); colorCache.set(url, c);
+    return c;
+  } catch { return null; }
+}
+async function themeFrom(url) {
+  const c = await coverHSL(url);
+  if (c) { lastHS = c; paintAccent(); }
 }
 // theme (dark / light / system) and accent (from the artwork, or a fixed colour)
 const ACCENTS = [['Violet', 262], ['Blue', 210], ['Teal', 172], ['Green', 120], ['Amber', 36], ['Pink', 330], ['Red', 5]];

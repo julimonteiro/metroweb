@@ -125,6 +125,7 @@ All routes except `/login` and the PWA files require a session.
 | `GET /api/img?u=` | Cover art proxy (Google/YouTube hosts only) |
 | `GET /api/status` · `POST /api/status/update-ytdlp` · `POST /api/backup/now` · `GET /api/backup/download` | Server status, update yt-dlp, backups |
 | `POST /api/import/list` · `GET /api/import/list?id=` | Import a pasted list / CSV as a playlist (async job) |
+| `GET /api/review?year=&tz=` · `POST /api/review/playlist?year=&tz=` | The year in review (heatmap, highlights, persona...) / make the "Top Songs" playlist |
 | `GET /api/mixes?tz=` | Mixes for you (on repeat, rewind, hidden gems, time of day, artists, genres) |
 | `GET /api/plays/summary` | Play count and last play time per song (feeds the smart shuffle) |
 | `POST /api/plays` · `GET /api/stats?range=30d\|90d\|365d\|all&tz=` | Record a listen (the app reports it after 30 s) / aggregated stats |
@@ -172,7 +173,7 @@ Library → Import takes a YouTube / YouTube Music playlist or album link, or a 
 ## Settings, themes and extras
 
 - **Settings** (account menu): smooth transitions (fade out and in between songs), volume leveling (a gentle compressor; experimental, and on iPhone it may stop in the background), playback speed, **theme** (system, dark, light) and **accent colour** (from the artwork, or a fixed colour).
-- **Your year in music** opens on **December 1** (and stays through January for the year that just ended). Until then Stats → Year in music shows a countdown with your plays so far; when it opens, Home shows a banner. It is a full-screen story (tap or use the arrow keys, hold to pause) with your hours, top artist, top artists and songs, genres, the hour of day you listen most, and your biggest month, and ends in a poster (1080×1920) you can share or save. It uses a wide two-column layout on desktop. To peek early while testing: `localStorage.setItem('mw.wrappedPreview', 'true')` in the browser console.
+- **Your year in music** opens on **December 1** (and stays through January for the year that just ended). Until then Stats → Year in music shows a countdown with your plays so far; when it opens, Home shows a banner. It is a full-screen story with **your own music playing under it** (the visuals swell with the bass), suspenseful reveals with confetti for your #1 artist and #1 song, and slides built from your real history: your hours, **your year in squares** (one per day), **the song you could not stop playing in one day**, **new artists you found** (once there is history from before the year), your top artists and songs, genres, your hour of day and your after-midnight song, **the song of every month**, and **the kind of listener you are** (Night Owl, Loyalist, Explorer, Repeater...). It ends with three posters to share or save (story 9:16, top 9 covers, your year in squares) and creates a **"Your Top Songs 2026" playlist** with your 100 most played songs. Tap or use the arrow keys, hold to pause, `M` mutes the music. It uses a wide two-column layout on desktop. To peek early while testing: `localStorage.setItem('mw.wrappedPreview', 'true')` in the browser console.
 - **Right-click or long-press** any song for its menu; on desktop, **drag a song** onto the tray that appears to add it to the queue or a playlist.
 
 ## Smart shuffle

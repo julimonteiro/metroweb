@@ -19,6 +19,7 @@ type Playlist struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name"`
 	Tracks  []Track   `json:"tracks"`
+	Ranked  bool      `json:"ranked,omitempty"` // order matters (a generated chart): the cover is the first song
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 }
@@ -187,6 +188,9 @@ func (s *PlaylistStore) List() []PlaylistSummary {
 		sum := PlaylistSummary{ID: p.ID, Name: p.Name, Count: len(p.Tracks)}
 		if len(p.Tracks) > 0 {
 			sum.Thumb = p.Tracks[len(p.Tracks)-1].Thumb
+			if p.Ranked {
+				sum.Thumb = p.Tracks[0].Thumb
+			}
 		}
 		out = append(out, sum)
 	}
@@ -224,6 +228,40 @@ func (s *PlaylistStore) Create(name string) (PlaylistSummary, error) {
 	defer s.mu.Unlock()
 	s.lists = append(s.lists, p)
 	return PlaylistSummary{ID: p.ID, Name: p.Name}, s.save()
+}
+
+// ReplaceRanked creates a generated, ordered playlist, replacing an earlier one with the same name.
+func (s *PlaylistStore) ReplaceRanked(name string, tracks []Track) (PlaylistSummary, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 100 {
+		return PlaylistSummary{}, errors.New("playlist name must be 1-100 characters")
+	}
+	b := make([]byte, 6)
+	rand.Read(b)
+	now := time.Now()
+	p := &Playlist{ID: hex.EncodeToString(b), Name: name, Tracks: []Track{}, Ranked: true, Created: now, Updated: now}
+	seen := map[string]bool{}
+	for _, raw := range tracks {
+		if t, ok := sanitizeTrack(raw); ok && !seen[t.ID] {
+			seen[t.ID] = true
+			p.Tracks = append(p.Tracks, t)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.lists[:0:0]
+	for _, l := range s.lists {
+		if l.ID != likedID && l.Name == name {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	s.lists = append(kept, p)
+	sum := PlaylistSummary{ID: p.ID, Name: p.Name, Count: len(p.Tracks)}
+	if len(p.Tracks) > 0 {
+		sum.Thumb = p.Tracks[0].Thumb
+	}
+	return sum, s.save()
 }
 
 func (s *PlaylistStore) Rename(id, name string) error {
