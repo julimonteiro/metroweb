@@ -319,8 +319,7 @@ func resolveWith(ctx context.Context, c clientCfg, id, pref string) (Stream, err
 }
 
 func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
-	bin, err := exec.LookPath("yt-dlp")
-	if err != nil {
+	if _, err := exec.LookPath("yt-dlp"); err != nil && ytdlpDir == "" {
 		return Stream{}, errors.New("yt-dlp: not installed")
 	}
 	format := "bestaudio[acodec=opus]/bestaudio/best"
@@ -329,7 +328,7 @@ func resolveYtDlp(ctx context.Context, id, pref string) (Stream, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "--ignore-config", "-f", format, "-j", "--no-warnings", "--no-playlist",
+	out, err := ytdlpCommand(ctx, "--ignore-config", "-f", format, "-j", "--no-warnings", "--no-playlist",
 		"https://music.youtube.com/watch?v="+id).Output()
 	if err != nil {
 		return Stream{}, fmt.Errorf("yt-dlp: %v", err)

@@ -35,7 +35,11 @@ func main() {
 	trustProxy := flag.Bool("trust-proxy", os.Getenv("METROWEB_TRUST_PROXY") == "1", "trust X-Forwarded-For (behind a reverse proxy/tunnel)")
 	genres := flag.Bool("genres", os.Getenv("METROWEB_GENRES") != "0", "look up artist genres on MusicBrainz for the stats page (sends artist names only)")
 	lyrics := flag.Bool("lyrics", os.Getenv("METROWEB_LYRICS") != "0", "look up synced lyrics on LRCLIB for the full-screen player (sends title/artist only)")
+	health := flag.Bool("healthcheck", false, "ask the running server if it is healthy, then exit (used by Docker)")
 	flag.Parse()
+	if *health {
+		os.Exit(runHealthcheck(*addr))
+	}
 
 	lib := NewLibrary(*libDir, *jfURL, *jfKey)
 	if err := lib.Check(); err != nil {
@@ -64,6 +68,10 @@ func main() {
 		go jf.Run()
 		lib.OnRescan = jf.Kick
 	}
+	ytdlpDir = filepath.Join(*dataDir, "ytdlp")
+	ScheduleYtDlpUpdates()
+	ScheduleBackups(*dataDir)
+	registerOps(mux, lib, jf, stats, *dataDir)
 	imp := NewImporter(jf, playlists, *dataDir)
 	imp.Schedule()
 	registerAPI(mux, lib, playlists, stats, jf, NewLyricsService(*lyrics), imp)

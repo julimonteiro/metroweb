@@ -386,7 +386,7 @@ func (a *Auth) handleAccount(w http.ResponseWriter, r *http.Request) {
 // publicPath: the login page itself and the PWA files (browsers fetch the
 // manifest without credentials).
 func publicPath(p string) bool {
-	return p == "/manifest.webmanifest" || p == "/icon.svg" || p == "/login.css" || p == "/login.js"
+	return p == "/healthz" || p == "/manifest.webmanifest" || p == "/icon.svg" || p == "/login.css" || p == "/login.js"
 }
 
 func (a *Auth) Middleware(next http.Handler) http.Handler {

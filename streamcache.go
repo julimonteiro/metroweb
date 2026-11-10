@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -112,7 +111,7 @@ func fetchToCache(ctx context.Context, id, pref string) error {
 	args = append(args, "--no-playlist", "--no-warnings", "--no-progress",
 		"-o", filepath.Join(streamCacheDir, id+"."+pref+".%(ext)s"),
 		"https://music.youtube.com/watch?v="+id)
-	out, err := exec.CommandContext(ctx, "yt-dlp", args...).CombinedOutput()
+	out, err := ytdlpCommand(ctx, args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if i := strings.LastIndex(msg, "\n"); i >= 0 {

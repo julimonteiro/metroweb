@@ -678,3 +678,10 @@ func (s *StatsStore) Summary() map[string]PlaySummary {
 	}
 	return out
 }
+
+// Count is the number of plays recorded so far.
+func (s *StatsStore) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.plays)
+}

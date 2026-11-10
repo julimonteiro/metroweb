@@ -145,7 +145,7 @@ func (l *Library) download(id string) error {
 		"https://music.youtube.com/watch?v=" + id,
 	}
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlpCommand(ctx, args...)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())

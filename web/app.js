@@ -180,6 +180,7 @@ const ROUTES = [
   [/^\/yt\/([\w-]+)$/, 'yt', viewYT],
   [/^\/playlist\/([\w-]+)$/, 'playlist', viewPlaylist],
   [/^\/mix\/([\w-]+)$/, 'mix', viewForYou],
+  [/^\/status$/, 'status', viewStatus],
 ];
 const TAB_OF = { home: 'home', search: 'search', library: 'library', stats: 'stats', queue: 'queue', playlist: 'library', mix: 'home' };
 
@@ -484,6 +485,46 @@ async function viewPlaylist(c) {
     else listAction(act, tracks_.length ? tracks_ : tracks, p.name, null);
   };
   bindActions(c);
+}
+
+// ---------- server status ----------
+const fmtBytes = n => n >= 1e12 ? (n / 1e12).toFixed(1) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? Math.round(n / 1e6) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const ago = u => { if (!u) return 'never'; const s = Math.max(0, Date.now() / 1000 - u); return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
+const fmtUp = s => s < 3600 ? `${Math.floor(s / 60)} min` : s < 172800 ? `${Math.floor(s / 3600)} h` : `${Math.floor(s / 86400)} days`;
+async function viewStatus(c) {
+  c.set(topBar('Server status') + `<div id="stBody">${skeletonRows(4)}</div>`);
+  let timer;
+  async function load() {
+    clearTimeout(timer);
+    let s; try { s = await api('/api/status'); } catch (e) { if (c.alive()) $('#stBody').innerHTML = errorHTML(e.message); return; }
+    if (!c.alive()) return;
+    const y = s.ytdlp, jf = s.jellyfin, low = d => d.total && d.free / d.total < 0.1;
+    const tile = (label, value, sub, bad) => `<div class="stile${bad ? ' bad' : ''}"><span>${label}</span><b>${value}</b><i>${sub || ''}</i></div>`;
+    $('#stBody').innerHTML = `<div class="sgrid">
+      ${tile('yt-dlp', esc(y.version || 'missing'), y.running ? 'Updating…' : y.error ? 'Update failed: ' + esc(y.error) : y.updated ? `Updated ${ago(y.updated)}` : y.checked ? `Checked ${ago(y.checked)}` : y.selfCopy ? 'Self-updating' : 'Updates daily', !y.version || (y.error && !y.running))}
+      ${tile('ffmpeg', esc(s.ffmpeg || 'missing'), '', !s.ffmpeg)}
+      ${tile('Jellyfin', jf.enabled ? `${fmtN(jf.songs)} songs` : 'Not set up', jf.enabled ? (jf.error ? esc(jf.error) : `Indexed ${ago(jf.updated)}`) : 'Optional', jf.enabled && !!jf.error)}
+      ${tile('Music folder', fmtBytes(s.library.free), 'free of ' + fmtBytes(s.library.total), low(s.library))}
+      ${tile('Server data', fmtBytes(s.data.free), 'free of ' + fmtBytes(s.data.total), low(s.data))}
+      ${tile('Stream cache', fmtBytes(s.cacheBytes), `${s.cacheFiles} files`)}
+      ${tile('Plays recorded', fmtN(s.plays), '')}
+      ${tile('Uptime', fmtUp(s.uptime), esc(s.go))}</div>
+    <div class="actions" style="padding-top:14px"><button class="btn tonal" data-st="update" ${y.running || !y.canUpdate ? 'disabled' : ''}>${ic('dl')}Update yt-dlp now</button></div>
+    <h2 class="sec"><span>Backups</span></h2>
+    <div class="sub" style="color:var(--dim);font-size:13px;padding:0 4px 8px">Your playlists, listening history and sync state. One is made every day and the last 14 are kept. Logins are never included.</div>
+    <div class="actions"><button class="btn tonal" data-st="backup">${ic('addq')}Back up now</button><button class="btn tonal" data-st="download">${ic('dl')}Download</button></div>
+    ${s.backups.map(b => `<div class="stline"><span>${esc(b.name)}</span><i>${fmtBytes(b.size)} · ${ago(b.time)}</i></div>`).join('') || '<div class="stline"><i>No backups yet</i></div>'}`;
+    if (y.running) timer = setTimeout(() => { if (c.alive()) load(); }, 3000);
+  }
+  $('#view').onclick = async e => {
+    const b = e.target.closest('[data-st]'); if (!b) return;
+    try {
+      if (b.dataset.st === 'update') { await send('POST', '/api/status/update-ytdlp'); snack('Updating yt-dlp…'); setTimeout(load, 800); }
+      else if (b.dataset.st === 'backup') { await send('POST', '/api/backup/now'); snack('Backup saved'); load(); }
+      else if (b.dataset.st === 'download') location.href = '/api/backup/download';
+    } catch (err) { snack(err.message); }
+  };
+  await load();
 }
 
 // ---------- stats ----------
@@ -913,9 +954,10 @@ async function accountSheet() {
       <div class="msg" id="accMsg"></div>
       <div class="btns"><button type="button" class="btn ghost" id="logout">${ic('out')}Sign out</button><button class="btn" type="submit">Save</button></div>
     </form>
-    <div class="syncline" id="syncLine"></div>`);
+    <div class="syncline" id="syncLine"></div>
+    <div class="acclinks"><button data-go="/status">${ic('stats')}Server status</button></div>`);
   if (jfEnabled) fillSync();
-  $('#sheet').onclick = null;
+  $('#sheet').onclick = e => { const g = e.target.closest('[data-go]'); if (g) { closeSheet(); go(g.dataset.go); } };
   $('#logout').onclick = async () => { await fetch('/logout', { method: 'POST' }); location.href = '/login'; };
   $('#accForm').onsubmit = async e => {
     e.preventDefault(); const f = e.target, m = $('#accMsg'); m.className = 'msg'; m.textContent = '';

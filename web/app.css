@@ -460,3 +460,18 @@ input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bord
 #fp .upnext svg { flex: none; color: var(--muted); margin-left: auto; }
 #fpImg { touch-action: pan-y; transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .2s; }
 @media (max-height: 700px) { #fp .upnext { display: none; } }
+
+/* ---- status page ---- */
+.sgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 6px 0; }
+.stile { background: var(--high); border-radius: 16px; padding: 14px 16px; display: grid; gap: 2px; min-width: 0; }
+.stile span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+.stile b { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; line-height: 1.2; }
+.stile i { font-style: normal; color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.stile.bad { outline: 1px solid var(--err); }
+.stile.bad i { color: var(--err); }
+.stline { display: flex; justify-content: space-between; gap: 12px; padding: 10px 4px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; }
+.stline i { font-style: normal; color: var(--dim); white-space: nowrap; }
+.acclinks { display: grid; gap: 4px; margin-top: 14px; }
+.acclinks button { display: flex; align-items: center; gap: 14px; height: 48px; padding: 0 14px; border-radius: 14px; background: rgba(255,255,255,.05); color: var(--on); font-size: 15px; text-align: left; }
+.acclinks button:hover { background: rgba(255,255,255,.09); }
+@media (min-width: 900px) { .sgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

@@ -20,4 +20,5 @@ USER metroweb
 ENV METROWEB_LIBRARY=/music METROWEB_DATA=/data HOME=/tmp XDG_CACHE_HOME=/tmp/.cache DENO_DIR=/tmp/.deno
 VOLUME ["/music", "/data"]
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=6s --start-period=20s --retries=3 CMD ["metroweb", "-addr", "127.0.0.1:8080", "-healthcheck"]
 ENTRYPOINT ["metroweb", "-addr", "0.0.0.0:8080"]
