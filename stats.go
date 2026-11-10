@@ -334,7 +334,19 @@ func (s *StatsStore) Stats(rng string, tzOffsetMin int, now time.Time) StatsResp
 	loc := time.FixedZone("viewer", tzOffsetMin*60)
 	now = now.In(loc)
 	var from time.Time
+	to := now.AddDate(100, 0, 0) // no upper bound, except for a past calendar year
+	year := now.Year()
+	if y, ok := yearRange(rng); ok { // "year:2025": that calendar year only
+		year = y
+		from = time.Date(y, time.January, 1, 0, 0, 0, 0, loc)
+		to = time.Date(y+1, time.January, 1, 0, 0, 0, 0, loc)
+		rng = "year"
+	}
 	switch rng {
+	case "year": // a calendar year (this one so far unless given), in the viewer's timezone
+		if from.IsZero() {
+			from = time.Date(year, time.January, 1, 0, 0, 0, 0, loc)
+		}
 	case "30d":
 		from = now.AddDate(0, 0, -30)
 	case "90d":
@@ -359,7 +371,7 @@ func (s *StatsStore) Stats(rng string, tzOffsetMin int, now time.Time) StatsResp
 
 	var in []Play
 	for _, p := range all {
-		if !time.Unix(p.T, 0).Before(from) {
+		if t := time.Unix(p.T, 0); !t.Before(from) && t.Before(to) {
 			in = append(in, p)
 		}
 	}
@@ -498,7 +510,7 @@ func (s *StatsStore) Stats(rng string, tzOffsetMin int, now time.Time) StatsResp
 
 	// Timeline buckets (days / weeks / months depending on the range) and the
 	// per-artist series for the top five, plus the fixed last-12-months view.
-	res.Granularity, res.Timeline = buckets(rng, in, loc, now)
+	res.Granularity, res.Timeline = buckets(rng, in, loc, now.AddDate(year-now.Year(), 0, 0))
 	topKeys := []string{}
 	for i, a := range topA {
 		if i == 5 {
@@ -565,6 +577,18 @@ func bucketKey(gran string, t, now time.Time) string {
 	}
 }
 
+// yearRange parses "year:2025".
+func yearRange(rng string) (int, bool) {
+	if !strings.HasPrefix(rng, "year:") {
+		return 0, false
+	}
+	y, err := strconv.Atoi(strings.TrimPrefix(rng, "year:"))
+	if err != nil || y < 2000 || y > 2100 {
+		return 0, false
+	}
+	return y, true
+}
+
 // buckets builds the empty (zero-filled) buckets for the range and fills plays/minutes.
 func buckets(rng string, plays []Play, loc *time.Location, now time.Time) (string, []Bucket) {
 	var gran string
@@ -586,6 +610,12 @@ func buckets(rng string, plays []Play, loc *time.Location, now time.Time) (strin
 				seen[k] = true
 				out = append(out, Bucket{Key: k, Label: d.Format("Jan 2")})
 			}
+		}
+	case "year":
+		gran = "month"
+		for m := time.January; m <= time.December; m++ {
+			d := time.Date(now.Year(), m, 1, 0, 0, 0, 0, loc)
+			out = append(out, Bucket{Key: d.Format("2006-01"), Label: d.Format("Jan")})
 		}
 	default:
 		gran = "month"

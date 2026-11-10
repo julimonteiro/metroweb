@@ -157,3 +157,53 @@ func TestSummary(t *testing.T) {
 		t.Fatalf("summary = %+v", got)
 	}
 }
+
+func TestStatsCalendarYear(t *testing.T) {
+	s, err := NewStatsStore(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(id string, at time.Time) Track { return Track{ID: id, Title: id, Artist: "A"} }
+	s.Record(mk("aaaaaaaaaaa", now), time.Date(2025, 12, 31, 23, 0, 0, 0, time.UTC)) // last year: excluded
+	s.Record(mk("bbbbbbbbbbb", now), time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC))
+	s.Record(mk("ccccccccccc", now), time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC))
+	r := s.Stats("year", 0, now)
+	if r.Range != "year" || r.Totals.Plays != 2 {
+		t.Fatalf("year totals = %+v range=%s", r.Totals, r.Range)
+	}
+	if len(r.Timeline) != 12 || r.Timeline[0].Label != "Jan" || r.Timeline[0].Plays != 1 || r.Timeline[5].Plays != 1 || r.Timeline[11].Label != "Dec" {
+		t.Fatalf("timeline = %+v", r.Timeline)
+	}
+	// a viewer east of UTC: 31 Dec 23:00 UTC is already 1 Jan for UTC+2
+	r = s.Stats("year", 120, now)
+	if r.Totals.Plays != 3 {
+		t.Fatalf("UTC+2 should count the New Year's Eve play: %d", r.Totals.Plays)
+	}
+}
+
+func TestStatsPastCalendarYear(t *testing.T) {
+	s, err := NewStatsStore(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2027, 1, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(id string) Track { return Track{ID: id, Title: id, Artist: "A"} }
+	s.Record(mk("aaaaaaaaaaa"), time.Date(2025, 12, 31, 23, 0, 0, 0, time.UTC)) // 2025: out
+	s.Record(mk("bbbbbbbbbbb"), time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC))
+	s.Record(mk("ccccccccccc"), time.Date(2026, 12, 24, 20, 0, 0, 0, time.UTC))
+	s.Record(mk("ddddddddddd"), time.Date(2027, 1, 2, 9, 0, 0, 0, time.UTC)) // 2027: out
+	r := s.Stats("year:2026", 0, now)
+	if r.Totals.Plays != 2 {
+		t.Fatalf("2026 should have 2 plays, got %d", r.Totals.Plays)
+	}
+	if len(r.Timeline) != 12 || r.Timeline[2].Plays != 1 || r.Timeline[11].Plays != 1 || r.Timeline[0].Plays != 0 {
+		t.Fatalf("timeline = %+v", r.Timeline)
+	}
+	if bad := s.Stats("year:abcd", 0, now); bad.Range != "all" {
+		t.Fatalf("a bad year falls back to all, got %q", bad.Range)
+	}
+	if cur := s.Stats("year", 0, now); cur.Totals.Plays != 1 {
+		t.Fatalf("plain year = the current one (2027): %d", cur.Totals.Plays)
+	}
+}

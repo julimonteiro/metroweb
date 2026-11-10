@@ -172,7 +172,7 @@ Library → Import takes a YouTube / YouTube Music playlist or album link, or a 
 ## Settings, themes and extras
 
 - **Settings** (account menu): smooth transitions (fade out and in between songs), volume leveling (a gentle compressor; experimental, and on iPhone it may stop in the background), playback speed, **theme** (system, dark, light) and **accent colour** (from the artwork, or a fixed colour).
-- **Your year in music** (Stats → Year in music): a recap of the last 12 months, shareable as an image.
+- **Your year in music** opens on **December 1** (and stays through January for the year that just ended). Until then Stats → Year in music shows a countdown with your plays so far; when it opens, Home shows a banner. It is a full-screen story (tap or use the arrow keys, hold to pause) with your hours, top artist, top artists and songs, genres, the hour of day you listen most, and your biggest month, and ends in a poster (1080×1920) you can share or save. It uses a wide two-column layout on desktop. To peek early while testing: `localStorage.setItem('mw.wrappedPreview', 'true')` in the browser console.
 - **Right-click or long-press** any song for its menu; on desktop, **drag a song** onto the tray that appears to add it to the queue or a playlist.
 
 ## Smart shuffle
