@@ -163,7 +163,13 @@ Lyrics come from [LRCLIB](https://lrclib.net), a free open lyrics database; only
 
 ## Shortcuts (desktop)
 
-Space play/pause · Shift+←/→ previous/next · `/` search · Esc closes the player and menus.
+Space play/pause · ←/→ seek 5 s · Shift+←/→ previous/next · ↑/↓ volume · `M` mute · `L` like · `S` shuffle · `R` repeat · `/` search · `?` shows this list · Esc closes the player and menus.
+
+## Also handy
+
+- **Jump back in** on Home: one tap starts Liked songs (smart shuffled), a mix or a playlist.
+- **Search and sort inside a playlist** (Liked songs included): filter by title/artist/album, sort by date added, A–Z or artist. Play and Shuffle then act on what you see.
+- **Sleep timer**: the moon button in the desktop bar, or the ⋮ menu of the full-screen player. 15 to 60 minutes or the end of the song; it fades out before pausing.
 
 ## Disclaimer
 

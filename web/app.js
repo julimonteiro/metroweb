@@ -23,6 +23,7 @@ const IC = {
   vol: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z',
   expand: 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z',
   warn: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+  moon: 'M12.1 22c-5.5 0-10-4.5-10-10 0-4.3 2.7-8 6.6-9.4.5-.2 1 0 1.2.4.2.4.1.9-.2 1.2-.9.9-1.4 2.1-1.4 3.3 0 2.6 2.1 4.7 4.7 4.7 1.2 0 2.4-.5 3.3-1.4.3-.3.8-.4 1.2-.2.4.2.6.7.4 1.2-1.5 3.3-4.9 5.2-8.4 5.2z',
   clock: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
   music: 'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z',
   radio: 'M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z',
@@ -132,7 +133,7 @@ const songRows = (items, l, o) => items.map((t, i) => rowHTML(t, l, i, o)).join(
 
 function cardHTML(it, l, i) {
   const round = it.type === 'artist';
-  const img_ = it.thumb ? `<img class="img" loading="lazy" src="${img(it.thumb)}" alt="">`
+  const img_ = it.local === 'liked' ? `<div class="img likedcov">${ic('heart', 52)}</div>` : it.thumb ? `<img class="img" loading="lazy" src="${img(it.thumb)}" alt="">`
     : `<div class="img ph">${ic(it.type === 'artist' ? 'user' : 'music')}</div>`;
   return `<button class="card${round ? ' round' : ''}" data-card data-l="${l}" data-i="${i}">${img_}
     <div class="ct">${esc(it.title)}</div><div class="cs">${esc(it.subtitle || it.artist || '')}</div></button>`;
@@ -200,10 +201,34 @@ window.addEventListener('hashchange', route);
 // ============================================================================
 // Views
 // ============================================================================
+const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Still up?' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
+// one-tap starters: Liked songs (shuffled), your first mixes and playlists
+function jumpTiles(mixes) {
+  const t = [];
+  if (liked.length) t.push({ k: 'liked', title: 'Liked songs', sub: `${liked.length} songs`, likedcov: true });
+  mixes.slice(0, 3).forEach(m => t.push({ k: 'mix:' + m.id, title: m.title, thumb: m.thumb, mix: m }));
+  playlists.filter(p => p.id !== 'liked' && p.count > 0).slice(0, 2).forEach(p => t.push({ k: 'pl:' + p.id, title: p.name, thumb: p.thumb, pl: p }));
+  return t.slice(0, t.length >= 6 ? 6 : t.length - (t.length % 2));   // keep the 2-column grid even
+}
+function paintJump(c, mixes) {
+  if (!c.alive()) return;
+  const tiles = jumpTiles(mixes), el = $('#hJump'); if (!el) return;
+  el.innerHTML = tiles.length ? `<div class="qgrid">${tiles.map((x, i) => `<button class="qtile" data-q="${i}">${x.likedcov ? `<div class="ph likedcov">${ic('heart', 26)}</div>` : x.thumb ? `<img src="${img(x.thumb)}" alt="">` : `<div class="ph">${ic('music')}</div>`}<span>${esc(x.title)}</span></button>`).join('')}</div>` : '';
+  el.onclick = async e => {
+    const b = e.target.closest('[data-q]'); if (!b) return;
+    const x = tiles[+b.dataset.q];
+    try {
+      if (x.k === 'liked') playShuffled(liked.map(T));
+      else if (x.mix) playList(x.mix.tracks.map(T), 0);
+      else if (x.pl) { const p = await api('/api/playlists/' + x.pl.id); if (p.tracks.length) playList(p.tracks.map(T), 0); }
+    } catch (err) { snack(err.message); }
+  };
+}
 async function viewHome(c) {
   const last = recent[0] || liked[liked.length - 1];
   c.set(`<div class="top"><a class="search" href="#/search">${ic('search')}<span>Search songs, artists, albums…</span></a>${avatarBtn()}</div>
     <div id="banner">${bannerHTML()}</div>
+    <div class="greet"><h1>${greeting()}</h1></div><div id="hJump"></div>
     <div id="hMixes"></div><div id="hQuick"></div><div id="hRecent"></div><div id="hLists"></div><div id="hBrowse">${section('Browse', skeletonCards(6))}</div>`);
   const own = playlists.filter(p => p.id !== 'liked' || p.count > 0);
   if (c.alive()) {
@@ -216,7 +241,9 @@ async function viewHome(c) {
     if (!c.alive() || !mx.length) return;
     const items = mx.map(m => ({ type: 'playlist', id: 'mix:' + m.id, mixId: m.id, title: m.title, subtitle: m.subtitle, thumb: m.thumb }));
     $('#hMixes').innerHTML = section('Mixes for you', hscroll(items, reg('hm', items)));
+    paintJump(c, mx);
   }).catch(() => {});
+  paintJump(c, []);
   if (last) {
     $('#hQuick').innerHTML = section('Because you listen', skeletonRows(5));
     try {
@@ -359,7 +386,7 @@ async function viewArtist(c) {
 // ---------- album & YouTube playlists ----------
 function tracksHeader(o) {
   return `<div class="head2">${backBtn()}
-    ${o.thumb ? `<img class="cov" src="${img(o.thumb)}" alt="">` : `<div class="cov ph">${ic(o.icon || 'music')}</div>`}
+    ${o.thumb ? `<img class="cov" src="${img(o.thumb)}" alt="">` : `<div class="cov ph${o.liked ? ' likedcov' : ''}">${ic(o.icon || 'music', o.liked ? 72 : 24)}</div>`}
     <div class="txt"><h1>${esc(o.title)}</h1><div class="sub">${o.sub || ''}</div></div></div>
     <div class="actions">${o.buttons}</div>`;
 }
@@ -428,13 +455,28 @@ async function viewPlaylist(c) {
   const isLiked = p.id === 'liked';
   const tracks = (isLiked ? [...p.tracks].reverse() : p.tracks).map(T);
   const more = isLiked ? '' : `<button class="iconbtn" data-act="rename" aria-label="Rename">${ic('edit')}</button><button class="iconbtn" data-act="delete" aria-label="Delete playlist">${ic('del')}</button>`;
-  c.set(tracksHeader({ title: p.name, thumb: tracks[0] && tracks[0].thumb, icon: isLiked ? 'heart' : 'music', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}`, buttons: listButtons(more).replace(/<button class="iconbtn" data-act="addpl"[^>]*>.*?<\/button>/, '') }) +
-    (tracks.length ? songRows(tracks, reg('t', tracks, 'queue')) : emptyHTML(isLiked ? 'heart' : 'music', isLiked ? 'Songs you like will show up here' : 'No songs yet. Use the ⋮ menu on any song to add it here.')));
+  const tools = tracks.length > 8 ? `<div class="tools"><label class="search">${ic('search')}<input id="tf" type="search" placeholder="Search in this playlist" autocomplete="off" aria-label="Search in this playlist"></label>
+      <div class="chips" id="tsort" role="tablist">${[['added', 'Added'], ['title', 'A–Z'], ['artist', 'Artist']].map(([k, n], i) => `<button class="chip${i ? '' : ' on'}" data-sort="${k}" role="tab">${n}</button>`).join('')}</div></div>` : '';
+  c.set(tracksHeader({ title: p.name, thumb: isLiked ? '' : tracks[0] && tracks[0].thumb, liked: isLiked, icon: isLiked ? 'heart' : 'music', sub: `${tracks.length} song${tracks.length === 1 ? '' : 's'}`, buttons: listButtons(more).replace(/<button class="iconbtn" data-act="addpl"[^>]*>.*?<\/button>/, '') }) + tools +
+    (tracks.length ? `<div id="tl">${songRows(tracks, reg('t', tracks, 'queue'))}</div>` : emptyHTML(isLiked ? 'heart' : 'music', isLiked ? 'Songs you like will show up here' : 'No songs yet. Use the ⋮ menu on any song to add it here.')));
   V.playlistId = p.id;
+  let shown = tracks, sortKey = 'added', filt = '';
+  const paint = () => {
+    const q = filt.trim().toLowerCase();
+    shown = tracks.filter(t => !q || `${t.title} ${t.artist} ${t.album || ''}`.toLowerCase().includes(q));
+    if (sortKey === 'title') shown = [...shown].sort((a, b) => a.title.localeCompare(b.title));
+    if (sortKey === 'artist') shown = [...shown].sort((a, b) => (a.artist || '').localeCompare(b.artist || '') || a.title.localeCompare(b.title));
+    $('#tl').innerHTML = shown.length ? songRows(shown, reg('t', shown, 'queue')) : emptyHTML('search', 'No songs match your search');
+  };
+  if (tools) {
+    $('#tf').addEventListener('input', e => { filt = e.target.value; paint(); });
+    $('#tsort').addEventListener('click', e => { const b = e.target.closest('[data-sort]'); if (!b) return; sortKey = b.dataset.sort; $$('#tsort .chip').forEach(x => x.classList.toggle('on', x === b)); paint(); });
+  }
   c.actions = act => {
+    const tracks_ = shown;
     if (act === 'rename') promptSheet('Rename playlist', p.name, 'Save', async name => { await send('PATCH', '/api/playlists/' + p.id, { name }); await refreshPlaylists(); route(); });
     else if (act === 'delete') confirmSheet('Delete playlist?', `“${p.name}” will be deleted. The songs themselves are not affected.`, 'Delete', async () => { await send('DELETE', '/api/playlists/' + p.id); await refreshPlaylists(); snack('Playlist deleted'); go('/library'); });
-    else listAction(act, tracks, p.name, null);
+    else listAction(act, tracks_.length ? tracks_ : tracks, p.name, null);
   };
   bindActions(c);
 }
@@ -665,6 +707,37 @@ function confirmSheet(title, text, cta, onOk) {
   $('#co').onclick = async () => { closeSheet(); try { await onOk(); } catch (e) { snack(e.message); } };
 }
 
+// ---- sleep timer: pause after N minutes (fading out) or at the end of the song
+let sleep = null;
+function sleepLabel() {
+  if (!sleep) return 'Sleep timer';
+  if (sleep.eos) return 'Sleep timer: end of song';
+  const m = Math.max(1, Math.round((sleep.at - Date.now()) / 60000));
+  return `Sleep timer: ${m} min left`;
+}
+function updateSleepUI() { const b = $('#dSleep'); if (!b) return; b.classList.toggle('on', !!sleep); b.style.color = sleep ? 'var(--accent)' : ''; b.title = sleepLabel(); }
+function clearSleep() { if (sleep && sleep.timer) clearTimeout(sleep.timer); sleep = null; updateSleepUI(); }
+function sleepFire() {
+  sleep = null; updateSleepUI();
+  const v = audio.volume; let n = 0;
+  const iv = setInterval(() => {
+    n++; audio.volume = Math.max(0, v * (1 - n / 20));
+    if (n >= 20) { clearInterval(iv); audio.pause(); audio.volume = v; snack('Sleep timer: paused. Good night.'); }
+  }, 200);
+}
+function setSleep(mins) {
+  clearSleep();
+  if (mins === 'eos') sleep = { eos: true };
+  else if (mins) sleep = { at: Date.now() + mins * 60000, timer: setTimeout(sleepFire, mins * 60000) };
+  updateSleepUI();
+  snack(sleep ? (sleep.eos ? 'Will pause at the end of this song' : `Will pause in ${mins} minutes`) : 'Sleep timer off');
+}
+function sleepSheet() {
+  const o = (v, label) => `<button class="act" data-s="${v}">${ic('clock')}${label}</button>`;
+  openSheet(`<h3>Sleep timer</h3><div class="sub">${esc(sleepLabel())}</div>${[15, 30, 45, 60].map(m => o(m, `${m} minutes`)).join('')}${o('eos', 'End of this song')}${sleep ? `<button class="act accent" data-s="0">${ic('close')}Turn off</button>` : ''}`);
+  $('#sheet').onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; closeSheet(); const v = b.dataset.s; setSleep(v === 'eos' ? 'eos' : +v); };
+}
+
 let dlTimer = null;
 const dlBusy = () => Object.values(dls).some(s => s === 'queued' || s === 'running');
 async function pollDl() {
@@ -736,6 +809,7 @@ function trackMenu(t, ctx = {}) {
     ${act('like', liked_ ? 'heart' : 'heart0', liked_ ? 'Remove from Liked songs' : 'Like', 'accent')}
     ${act('pl', 'lib', 'Add to playlist')}
     ${act('dl', st === 'done' || st === 'owned' ? 'check' : 'dl', st === 'done' ? 'Downloaded to your library' : st === 'owned' ? 'Already in your Jellyfin library' : st === 'busy' ? 'Downloading…' : 'Download to library')}
+    ${ctx.player ? act('sleep', 'moon', sleepLabel()) : ''}
     ${t.artistId ? act('artist', 'user', 'Go to artist') : ''}
     ${t.albumId ? act('album', 'album', 'Go to album') : ''}
     ${act('share', 'share', 'Share link')}
@@ -744,6 +818,7 @@ function trackMenu(t, ctx = {}) {
   $('#sheet').onclick = async e => {
     const b = e.target.closest('[data-a]'); if (!b) return;
     const a = b.dataset.a; closeSheet();
+    if (a === 'sleep') sleepSheet();
     if (a === 'radio') startRadio(t);
     if (a === 'next') { queue.splice(idx + 1, 0, T(t)); persist(); renderQueueList(); snack('Playing next'); }
     if (a === 'queue') { queue.push(T(t)); persist(); renderQueueList(); snack('Added to queue'); }
@@ -1042,11 +1117,30 @@ document.addEventListener('keydown', e => {
   const row = e.target.closest && e.target.closest('.row[data-id]');
   if (row && (e.key === 'Enter' || e.key === ' ') && e.target === row) { e.preventDefault(); row.click(); return; }
   if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  const onRange = e.target.tagName === 'INPUT';
   if (e.code === 'Space') { e.preventDefault(); toggle(); }
   if (e.key === 'ArrowRight' && e.shiftKey) next();
-  if (e.key === 'ArrowLeft' && e.shiftKey) prev();
+  else if (e.key === 'ArrowLeft' && e.shiftKey) prev();
+  else if (!onRange && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (audio.duration) audio.currentTime = Math.min(audio.duration, audio.currentTime + 5); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); audio.currentTime = Math.max(0, audio.currentTime - 5); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault(); const v = $('#vol'); v.value = Math.max(0, Math.min(100, +v.value + (e.key === 'ArrowUp' ? 5 : -5))); v.dispatchEvent(new Event('input'));
+    }
+    else if (e.key === 'm') { audio.muted = !audio.muted; snack(audio.muted ? 'Muted' : 'Unmuted'); }
+    else if (e.key === 'l' && cur()) toggleLike(cur());
+    else if (e.key === 's') { setShuffle(!shuffle); snack(shuffle ? 'Shuffle off' : 'Shuffle on'); }
+    else if (e.key === 'r') $('#dRep').click();
+    else if (e.key === '?') shortcutsSheet();
+  }
   if (e.key === '/') { e.preventDefault(); go('/search'); }
 });
+function shortcutsSheet() {
+  const k = [['Space', 'Play / pause'], ['← →', 'Seek 5 seconds'], ['Shift + ← →', 'Previous / next song'], ['↑ ↓', 'Volume'], ['M', 'Mute'], ['L', 'Like the current song'],
+    ['S', 'Shuffle'], ['R', 'Repeat'], ['/', 'Search'], ['Esc', 'Close'], ['?', 'This list']];
+  openSheet(`<h3>Keyboard shortcuts</h3><div class="keys">${k.map(([a, b]) => `<div><kbd>${a}</kbd><span>${b}</span></div>`).join('')}</div>`);
+  $('#sheet').onclick = null;
+}
 async function startMix(it) {
   snack('Starting mix…');
   try { const r = await api('/api/mix?id=' + encodeURIComponent(it.id)); playList(r.map(T), 0, true); } catch (e) { snack('Could not start mix: ' + e.message); }
@@ -1061,7 +1155,8 @@ for (const id of ['shuf', 'dShuf']) $('#' + id).addEventListener('click', () => 
 for (const id of ['rep', 'dRep']) $('#' + id).addEventListener('click', () => { repeat = (repeat + 1) % 3; store.set('mw.repeat', repeat); updateNow(); snack(['Repeat off', 'Repeat queue', 'Repeat song'][repeat]); });
 for (const id of ['fpFav', 'dFav']) $('#' + id).addEventListener('click', () => toggleLike(cur()));
 for (const id of ['fpDl', 'dDl']) $('#' + id).addEventListener('click', () => { const t = cur(); if (t) { if (stateOf(t.id) === 'err') delete dls[t.id]; download(t.id); } });
-$('#fpMore').onclick = () => { if (cur()) trackMenu(cur(), {}); };
+$('#fpMore').onclick = () => { if (cur()) trackMenu(cur(), { player: true }); };
+$('#dSleep').onclick = sleepSheet;
 $('#fpPl').onclick = () => { if (cur()) playlistPicker([cur()], cur().title); };
 $('#fpQueue').onclick = () => { closeFp(); go('/queue'); };
 $('#dQueue').onclick = () => go('/queue');
@@ -1082,7 +1177,7 @@ $('#dExpand').onclick = openFp; $('#fpClose').onclick = closeFp;
 
 // audio
 audio.addEventListener('play', updateNow); audio.addEventListener('pause', updateNow);
-audio.addEventListener('ended', () => { counted = false; next(true); });
+audio.addEventListener('ended', () => { counted = false; if (sleep && sleep.eos) { clearSleep(); snack('Sleep timer: paused. Good night.'); return; } next(true); });
 audio.addEventListener('error', () => {
   if (!audio.src) return;
   // a file from Jellyfin the browser can't play: retry once through YouTube
@@ -1294,7 +1389,7 @@ function paintStatic() {
   $('#fpClose').innerHTML = ic('down', 30); $('#fpMore').innerHTML = ic('more');
   $('#miniNext').innerHTML = ic('next'); $('#dPrev').innerHTML = ic('prev'); $('#dNext').innerHTML = ic('next');
   $('#prev').innerHTML = ic('prev', 34); $('#next').innerHTML = ic('next', 34);
-  $('#dExpand').innerHTML = ic('expand'); $('#dQueue').innerHTML = ic('queue');
+  $('#dExpand').innerHTML = ic('expand'); $('#dSleep').innerHTML = ic('moon'); $('#dQueue').innerHTML = ic('queue');
   $('#fpQueue').innerHTML = ic('queue', 20) + 'Queue'; $('#fpPl').innerHTML = ic('lib', 20) + 'Playlist';
 }
 async function migrateLocalFavs() {
